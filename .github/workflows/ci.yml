@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Keep in sync with cmake/FetchSerenity.cmake (SERENITY_PINNED_REF).
+      - name: Checkout pinned Serenity
+        uses: actions/checkout@v4
+        with:
+          repository: SerenityOS/serenity
+          ref: main # TODO(M0): pin to a release tag / commit
+          path: deps/serenity
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build clang lld git \
+            libx11-dev libxext-dev # Xlib + XShm (M3)
+
+      # Clang is required: GCC 16 miscompiles AK::Vector placement-new under
+      # -Werror=stringop-overflow (false positive, see docs/PORTING.md).
+      - name: Configure
+        run: >
+          cmake -B Build -G Ninja
+          -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+          -DSERENITY_SOURCE_DIR=${{ github.workspace }}/deps/serenity
+
+      - name: Build
+        run: cmake --build Build
+
+      - name: Test
+        run: ctest --test-dir Build --output-on-failure
+
+  # FreeBSD job: requires a self-hosted runner (GitHub has no hosted FreeBSD).
+  # By design this codebase contains no evdev or other Linux-only input path,
+  # so the same sources must configure and build here unchanged.
+  #
+  # build-freebsd:
+  #   runs-on: [self-hosted, freebsd]
+  #   steps:
+  #     - ... (mirror build-linux; pkg install cmake ninja clang libX11)
