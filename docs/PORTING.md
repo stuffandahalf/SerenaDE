@@ -7,8 +7,8 @@ Living tracker. Update in the same commit as the work it describes, and keep
 
 | Component                          | Milestone | Status      | Notes |
 | ---------------------------------- | --------- | ----------- | ----- |
-| Serenity pin (FetchSerenity + CI)  | M0        | not started | Currently `main` placeholder in both places |
-| Lagom build of LibGUI              | M0        | not started | Last core lib missing; LibGfx/LibIPC/etc. already native |
+| Serenity pin (FetchSerenity + CI)  | M0        | done        | `7784b1f535` in both places; CI job unrun (no push yet) |
+| Lagom build of LibGUI              | M0        | done        | Patch 0002; full lib links as `liblagom-gui.so` |
 | ctest fully green                  | M0        | done*       | 237/237 serial; `-j` parallel is flaky (see log) — run serially |
 | Headless vertical slice (1 app → PNG) | M1      | not started | Proves IPC/compositor/resources |
 | Synthetic input + golden tests     | M2        | not started | Regression net for everything after |
@@ -26,6 +26,21 @@ Living tracker. Update in the same commit as the work it describes, and keep
 Record discoveries here as they happen (surprising `#ifdef` gaps, API quirks,
 decisions with trade-offs). Newest first.
 
+- 2026-08-29 — **M0 complete.** Pinned Serenity to `7784b1f535` and built the
+  full LibGUI natively via Lagom (patches 0001 + 0002). Findings:
+  - The long tail was tiny: **one** source fix for all 124 LibGUI translation
+    units (`Window.cpp` needed `<limits.h>` for `INT_MIN`; it had relied on a
+    transitive Serenity-LibC include). Everything else — GML codegen, IPC
+    endpoint generation, the whole widget stack — compiled and linked as-is.
+  - Lagom previously carried a *partial* six-file LibGUI target (for tooling);
+    patch 0002 replaces it with the full library via the standard-library list.
+    `LibConfig` also had to be added to that list (LibGUI links it).
+  - IPC endpoint headers for Clipboard/NotificationServer/WindowServer are now
+    generated from LibGUI's own CMakeLists under `if (NOT SERENITYOS)`,
+    following the existing LibImageDecoderClient pattern.
+  - SerenaDE-side fix: `ApplyPatches.cmake` had a wrong glob path (patches were
+    silently not applied) and is now idempotent — it detects already-applied
+    patches via reverse check, so dev trees with manual edits still configure.
 - 2026-08-29 — Scaffold verified end-to-end against local Serenity checkout
   (Clang 22): configure + full build green (1598 targets), ctest 236 passed /
   1 failed / 1 skipped. Findings:

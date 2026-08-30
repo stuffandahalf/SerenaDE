@@ -15,7 +15,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: SerenityOS/serenity
-          ref: main # TODO(M0): pin to a release tag / commit
+          ref: 7784b1f535a431635443e04d37a9e279ddb9b8eb
           path: deps/serenity
 
       - name: Install dependencies

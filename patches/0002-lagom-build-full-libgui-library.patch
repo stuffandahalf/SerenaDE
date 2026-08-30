@@ -1,0 +1,84 @@
+From 8d2e4b6f1c9a7e53d0b8f4a2c6e1d9b7f3a5c8e0 Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory@serenade.local>
+Date: Sat, 29 Aug 2026 00:00:00 +0000
+Subject: [PATCH 2/2] Lagom: Build the full LibGUI library
+
+Replace the partial six-file LibGUI target (kept for tooling) with the
+complete library by adding GUI and Config to the standard Lagom library
+list. LibGUI's own CMakeLists.txt already declares all sources, GML
+codegen, and IPC endpoint dependencies; in the host build those service
+endpoint headers are generated from LibGUI's directory (the services
+themselves are not built by Lagom), following the existing
+LibImageDecoderClient pattern.
+
+---
+ Meta/Lagom/CMakeLists.txt            | 16 ++--------------
+ Userland/Libraries/LibGUI/CMakeLists.txt | 13 +++++++++++++
+ 2 files changed, 15 insertions(+), 14 deletions(-)
+
+diff --git a/Meta/Lagom/CMakeLists.txt b/Meta/Lagom/CMakeLists.txt
+index 213a1e77dd..cb5fef3c82 100644
+--- a/Meta/Lagom/CMakeLists.txt
++++ b/Meta/Lagom/CMakeLists.txt
+@@ -468,6 +468,7 @@ if (BUILD_LAGOM)
+         Archive
+         Audio
+         Compress
++        Config
+         Crypto
+         Cpp
+         DeviceTree
+@@ -478,6 +479,7 @@ if (BUILD_LAGOM)
+         GL
+         GLSL
+         GPU
++        GUI
+         HID
+         HTTP
+         IMAP
+@@ -544,20 +546,6 @@ if (BUILD_LAGOM)
+         add_serenity_subdirectory("Userland/Libraries/Lib${lib}")
+     endforeach()
+ 
+-    # GUI
+-    set(LIBGUI_SOURCES
+-        GML/Lexer.cpp
+-        GML/Parser.cpp
+-        GML/SyntaxHighlighter.cpp
+-        Icon.cpp
+-        Model.cpp
+-        ModelIndex.cpp
+-    )
+-    list(TRANSFORM LIBGUI_SOURCES PREPEND "${SERENITY_PROJECT_ROOT}/Userland/Libraries/LibGUI/")
+-    lagom_lib(LibGUI gui
+-        SOURCES ${LIBGUI_SOURCES}
+-        LIBS LibCore LibGfx LibSyntax)
+-
+     # FIXME: How about we don't include Kernel/API from random high-level libraries?
+     install(FILES ${SERENITY_PROJECT_ROOT}/Kernel/API/KeyCode.h DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/Kernel/API")
+ 
+diff --git a/Userland/Libraries/LibGUI/CMakeLists.txt b/Userland/Libraries/LibGUI/CMakeLists.txt
+index d20bbc80d4..df61665d30 100644
+--- a/Userland/Libraries/LibGUI/CMakeLists.txt
++++ b/Userland/Libraries/LibGUI/CMakeLists.txt
+@@ -1,5 +1,18 @@
+ compile_gml(DynamicWidgetContainerControls.gml DynamicWidgetContainerControls.cpp)
+ 
++if (NOT SERENITYOS)
++    # The Serenity build generates these in the respective service directories;
++    # the Lagom host build does not build those services, so generate them here.
++    compile_ipc(../../Services/Clipboard/ClipboardClient.ipc ../../Services/Clipboard/ClipboardClientEndpoint.h)
++    compile_ipc(../../Services/Clipboard/ClipboardServer.ipc ../../Services/Clipboard/ClipboardServerEndpoint.h)
++    compile_ipc(../../Services/NotificationServer/NotificationClient.ipc ../../Services/NotificationServer/NotificationClientEndpoint.h)
++    compile_ipc(../../Services/NotificationServer/NotificationServer.ipc ../../Services/NotificationServer/NotificationServerEndpoint.h)
++    compile_ipc(../../Services/WindowServer/WindowClient.ipc ../../Services/WindowServer/WindowClientEndpoint.h)
++    compile_ipc(../../Services/WindowServer/WindowManagerClient.ipc ../../Services/WindowServer/WindowManagerClientEndpoint.h)
++    compile_ipc(../../Services/WindowServer/WindowManagerServer.ipc ../../Services/WindowServer/WindowManagerServerEndpoint.h)
++    compile_ipc(../../Services/WindowServer/WindowServer.ipc ../../Services/WindowServer/WindowServerEndpoint.h)
++endif()
++
+ compile_gml(AboutDialog.gml AboutDialogGML.cpp)
+ stringify_gml(DatePickerDialog.gml DatePickerDialogGML.h date_picker_dialog_gml)
+ compile_gml(EmojiInputDialog.gml EmojiInputDialogGML.cpp)
+-- 
+2.40.0

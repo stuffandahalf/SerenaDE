@@ -219,10 +219,13 @@ FreeBSD.
 
 ### Current status
 
-**M0 — in progress (scaffold verified).** Build skeleton configures and builds
-cleanly against a local Serenity checkout with Clang 22 (1598/1598 targets);
-ctest serial: **237/237 passed**. LibGfx/LibIPC/etc. already build natively via
-Lagom; remaining M0 work is the pin + LibGUI. See `docs/PORTING.md`.
+**M0 — complete (2026-08-29).** Pinned to Serenity `7784b1f535`; full LibGUI
+builds natively via Lagom (`liblagom-gui.so`) using patches 0001–0002; full
+build green with Clang 22; ctest serial **237/237**. Verified from a pristine
+checkout of the pin (patches apply cleanly, LibGUI links). Caveat: the CI job
+has not run yet (no push); treat M0 as done-locally until first CI pass.
+Next: **M1** — headless vertical slice (WindowServer + one app → PNG). See
+`docs/PORTING.md`.
 
 ## Patch workflow
 

@@ -7,8 +7,8 @@
 
 include(FetchContent)
 
-# TODO(M0): pin to the first known-good release tag / commit.
-set(SERENITY_PINNED_REF "main" CACHE STRING "Git ref of SerenityOS/serenity to build against")
+# Pinned revision (no active tags in the upstream repo; pinned by commit).
+set(SERENITY_PINNED_REF "7784b1f535a431635443e04d37a9e279ddb9b8eb" CACHE STRING "Git ref of SerenityOS/serenity to build against")
 
 FetchContent_Declare(
     serenity
