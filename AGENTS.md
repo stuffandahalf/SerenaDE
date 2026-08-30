@@ -219,13 +219,20 @@ FreeBSD.
 
 ### Current status
 
-**M0 — complete (2026-08-29).** Pinned to Serenity `7784b1f535`; full LibGUI
-builds natively via Lagom (`liblagom-gui.so`) using patches 0001–0002; full
-build green with Clang 22; ctest serial **237/237**. Verified from a pristine
-checkout of the pin (patches apply cleanly, LibGUI links). Caveat: the CI job
-has not run yet (no push); treat M0 as done-locally until first CI pass.
-Next: **M1** — headless vertical slice (WindowServer + one app → PNG). See
-`docs/PORTING.md`.
+**M1 — complete (2026-08-30).** Headless vertical slice works end-to-end:
+WindowServer (virtual screen) + Clipboard + AnalogClock run natively over plain
+Unix sockets and produce a verified PNG of the rendered app. Patches 0003–0007
+cover host-boot tolerance (pledge/unveil no-ops, `$SERENITY_RES`, tolerant
+device/config/keymap handling, screenshot hook) and extend Lagom to build
+WindowServer, Clipboard, and AnalogClock unmodified. The launcher
+(`src/Launcher`) pre-binds all service sockets and hands them over via the
+`SOCKET_TAKEOVER` env var — the same mechanism Serenity's SystemServer uses —
+then captures a screenshot on SIGUSR1. Exit criteria met: ctest
+`m1-headless-analog-clock-screenshot` passes (~3s), full serial ctest **238/238**,
+and the whole patch set was re-verified from a pristine checkout of the pin
+(apply → build → slice run). Caveat: the CI job has not run yet (no push);
+treat M0/M1 as done-locally until first CI pass. Next: **M2** — synthetic input
++ golden-screenshot regression tests. See `docs/PORTING.md`.
 
 ## Patch workflow
 

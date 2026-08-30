@@ -1,0 +1,186 @@
+From ae671bc9fcbaa3c57130566070e958aa0a6a60ac Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory@serenade.local>
+Date: Sat, 30 Aug 2026 00:00:00 +0000
+Subject: [PATCH 7/7] Lagom: Build WindowServer, Clipboard, and AnalogClock on hosts
+
+WindowServer, Clipboard, and the AnalogClock application build
+unmodified against the host toolchain once their dependencies are in
+place:
+
+- Add Keyboard to the standard library list.
+- Enable the ASM language (application icons embed as assembly objects).
+- Build WindowServer and Clipboard as regular Lagom services; expose a
+  shim sys/devices/gpu.h (host types from GpuTypesHost.h plus the original
+  inline ioctl wrappers) so the screen backends compile without putting
+  the whole Serenity LibC header tree on the include path.
+- Add AnalogClock, the first application built unmodified on hosts.
+
+diff --git a/Meta/Lagom/CMakeLists.txt b/Meta/Lagom/CMakeLists.txt
+index cb5fef3c82..94665e42be 100644
+--- a/Meta/Lagom/CMakeLists.txt
++++ b/Meta/Lagom/CMakeLists.txt
+@@ -5,7 +5,7 @@ project(
+     VERSION 0.0.0
+     DESCRIPTION "Host build of SerenityOS libraries and applications"
+     HOMEPAGE_URL "https://github.com/SerenityOS/serenity"
+-    LANGUAGES C CXX
++    LANGUAGES C CXX ASM
+ )
+ 
+ if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS "12")
+@@ -487,6 +487,7 @@ if (BUILD_LAGOM)
+         IPC
+         JIT
+         JS
++        Keyboard
+         Line
+         Locale
+         Manual
+@@ -557,6 +558,9 @@ if (BUILD_LAGOM)
+         # Lagom Services
+         add_serenity_subdirectory(Userland/Services)
+ 
++        # Applications that build unmodified on host systems.
++        add_serenity_subdirectory(Userland/Applications/AnalogClock)
++
+         # Lagom Utilities
+         lagom_utility(abench SOURCES ../../Userland/Utilities/abench.cpp LIBS LibMain LibFileSystem LibAudio)
+         lagom_utility(aconv SOURCES ../../Userland/Utilities/aconv.cpp LIBS LibMain LibFileSystem LibAudio)
+diff --git a/Userland/Services/CMakeLists.txt b/Userland/Services/CMakeLists.txt
+index ee0d346bb3..d911a1ebc4 100644
+--- a/Userland/Services/CMakeLists.txt
++++ b/Userland/Services/CMakeLists.txt
+@@ -1,14 +1,15 @@
++add_subdirectory(Clipboard)
+ add_subdirectory(ConfigServer)
+ add_subdirectory(EchoServer)
+ add_subdirectory(FileOperation)
+ add_subdirectory(LookupServer)
+ add_subdirectory(SSHServer)
+ add_subdirectory(WebServer)
++add_subdirectory(WindowServer)
+ 
+ if (SERENITYOS)
+     add_subdirectory(AudioServer)
+     add_subdirectory(ChessEngine)
+-    add_subdirectory(Clipboard)
+     add_subdirectory(CrashDaemon)
+     add_subdirectory(DeviceMapper)
+     add_subdirectory(DHCPClient)
+@@ -28,5 +29,4 @@ if (SERENITYOS)
+     add_subdirectory(WebContent)
+     add_subdirectory(WebDriver)
+     add_subdirectory(WebWorker)
+-    add_subdirectory(WindowServer)
+ endif()
+diff --git a/Userland/Services/WindowServer/CMakeLists.txt b/Userland/Services/WindowServer/CMakeLists.txt
+index 77875a349f..b0889cd9e8 100644
+--- a/Userland/Services/WindowServer/CMakeLists.txt
++++ b/Userland/Services/WindowServer/CMakeLists.txt
+@@ -47,3 +47,15 @@ set(GENERATED_SOURCES
+ serenity_bin(WindowServer)
+ target_link_libraries(WindowServer PRIVATE LibCore LibFileSystem LibKeyboard LibGfx LibThreading LibIPC LibMain)
+ serenity_install_headers(Services/WindowServer)
++
++if (NOT SERENITYOS)
++    # sys/devices/gpu.h is a Serenity LibC header. Expose a shim that provides
++    # the host-side types (GpuTypesHost.h) plus the original inline ioctl
++    # wrappers, without putting the whole LibC header tree on the include path
++    # (which would shadow host libc headers).
++    file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/include/sys/devices")
++    file(READ "${SerenityOS_SOURCE_DIR}/Userland/Libraries/LibC/sys/devices/gpu.h" serenity_gpu_h)
++    file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/include/sys/devices/gpu.h"
++        "#pragma once\n#include <WindowServer/GpuTypesHost.h>\n${serenity_gpu_h}")
++    target_include_directories(WindowServer PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/include")
++endif()
+diff --git a/Userland/Services/WindowServer/GpuTypesHost.h b/Userland/Services/WindowServer/GpuTypesHost.h
+new file mode 100644
+index 0000000000..b1ddc43181
+--- /dev/null
++++ b/Userland/Services/WindowServer/GpuTypesHost.h
+@@ -0,0 +1,85 @@
++/*
++ * Copyright (c) 2026, Gregory Norton.
++ *
++ * SPDX-License-Identifier: BSD-2-Clause
++ */
++
++#pragma once
++
++// Serenity GPU device types and ioctl numbers, for host (Lagom) builds.
++//
++// On Serenity these come from Kernel/API/Ioctl.h (pulled in by the LibC
++// sys/ioctl.h). That header cannot be included on host systems: it defines
++// struct winsize (conflicting with the host's <sys/ioctl.h>) and enum members
++// that collide with host ioctl macros. This file carries only the subset the
++// WindowServer screen backends need.
++//
++// NOTE: Keep the structs below in sync with Kernel/API/Ioctl.h.
++
++struct GraphicsConnectorProperties {
++    unsigned char multihead_support;
++    unsigned char doublebuffer_support;
++    unsigned char flushing_support;
++    unsigned char partial_flushing_support;
++    unsigned char refresh_rate_support;
++    unsigned max_buffer_bytes;
++};
++
++struct GraphicsHeadModeSetting {
++    int horizontal_stride;
++    int pixel_clock_in_khz;
++    int horizontal_active;
++    int horizontal_front_porch_pixels;
++    int horizontal_sync_time_pixels;
++    int horizontal_blank_pixels;
++    int vertical_active;
++    int vertical_front_porch_lines;
++    int vertical_sync_time_lines;
++    int vertical_blank_lines;
++    int horizontal_offset;
++    int vertical_offset;
++};
++
++struct GraphicsHeadEDID {
++    unsigned char* bytes;
++    unsigned bytes_size;
++};
++
++struct GraphicsHeadVerticalOffset {
++    int head_index;
++    int offsetted;
++};
++
++struct FBRect {
++    int head_index;
++    unsigned x;
++    unsigned y;
++    unsigned width;
++    unsigned height;
++};
++
++struct FBBufferOffset {
++    int buffer_index;
++    unsigned offset;
++};
++
++struct FBFlushRects {
++    int buffer_index;
++    unsigned count;
++    struct FBRect const* rects;
++};
++
++// The values only have meaning on Serenity (they are ioctl numbers); on host
++// systems the corresponding wrapper functions are never invoked.
++enum SerenityGraphicsIoctlNumber {
++    GRAPHICS_IOCTL_GET_PROPERTIES,
++    GRAPHICS_IOCTL_SET_HEAD_VERTICAL_OFFSET_BUFFER,
++    GRAPHICS_IOCTL_GET_HEAD_VERTICAL_OFFSET_BUFFER,
++    GRAPHICS_IOCTL_FLUSH_HEAD_BUFFERS,
++    GRAPHICS_IOCTL_FLUSH_HEAD,
++    GRAPHICS_IOCTL_SET_HEAD_MODE_SETTING,
++    GRAPHICS_IOCTL_GET_HEAD_MODE_SETTING,
++    GRAPHICS_IOCTL_SET_SAFE_HEAD_MODE_SETTING,
++    GRAPHICS_IOCTL_SET_RESPONSIBLE,
++    GRAPHICS_IOCTL_UNSET_RESPONSIBLE,
++};

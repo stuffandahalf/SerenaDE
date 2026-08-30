@@ -1,13 +1,23 @@
-# Headless screenshot tests (M2).
+# Headless screenshot tests.
 #
-# Run an app against WindowServer with the virtual screen backend plus
-# SyntheticInputBackend, dump the framebuffer to PNG, and compare against
-# golden/ images. This is the regression net for every later milestone and the
-# reason M1/M2 exist before any X11 code lands.
+# M1: vertical slice -- WindowServer (virtual screen backend) + one real app,
+# framebuffer dumped to PNG via SIGUSR1. Proves IPC over UDS (including fd
+# passing via SOCKET_TAKEOVER), resource resolution ($SERENITY_RES), fonts,
+# and the compositor end-to-end.
 #
-# Not built until M1 (headless slice) prerequisites are in place.
+# M2 (later): scripted input via SyntheticInputBackend + golden-image
+# comparison; see screenshot_test.cpp.
 
-# M2:
-#   add_executable(screenshot-test screenshot_test.cpp)
-#   target_link_libraries(screenshot-test PRIVATE serenade_input_backend ...)
-#   add_test(NAME screenshot COMMAND screenshot-test)
+# The launcher uses fixed /tmp paths (/tmp/portal, /tmp/session/0/portal), so
+# this test must not run in parallel with anything else touching them; ctest
+# is run serially for this project (see AGENTS.md).
+add_test(NAME m1-headless-analog-clock-screenshot
+    COMMAND serenade-launcher
+        --res ${SERENITY_SOURCE_DIR}/Base/res
+        --screenshot ${CMAKE_CURRENT_BINARY_DIR}/m1-analog-clock.png
+        --delay 3000
+        --log-dir ${CMAKE_CURRENT_BINARY_DIR}
+        --service /tmp/session/0/portal/clipboard=$<TARGET_FILE:Clipboard>
+        $<TARGET_FILE:WindowServer>
+        $<TARGET_FILE:AnalogClock>)
+set_tests_properties(m1-headless-analog-clock-screenshot PROPERTIES TIMEOUT 60)

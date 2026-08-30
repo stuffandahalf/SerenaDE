@@ -9,14 +9,14 @@ Living tracker. Update in the same commit as the work it describes, and keep
 | ---------------------------------- | --------- | ----------- | ----- |
 | Serenity pin (FetchSerenity + CI)  | M0        | done        | `7784b1f535` in both places; CI job unrun (no push yet) |
 | Lagom build of LibGUI              | M0        | done        | Patch 0002; full lib links as `liblagom-gui.so` |
-| ctest fully green                  | M0        | done*       | 237/237 serial; `-j` parallel is flaky (see log) — run serially |
-| Headless vertical slice (1 app → PNG) | M1      | not started | Proves IPC/compositor/resources |
+| ctest fully green                  | M0/M1     | done*       | 238/238 serial incl. M1 slice test; `-j` parallel is flaky (see log) — run serially |
+| Headless vertical slice (1 app → PNG) | M1      | done        | WindowServer + AnalogClock + Clipboard → PNG; ctest `m1-headless-analog-clock-screenshot`; pristine-verified |
 | Synthetic input + golden tests     | M2        | not started | Regression net for everything after |
 | X11 screen backend                 | M3        | not started | XShm dirty-rect flush |
 | X11 input backend                  | M3        | not started | Only real input backend (no evdev, by design) |
-| ConfigServer / Clipboard           | M4        | partial     | ConfigServer already builds natively via Lagom; Clipboard not yet |
+| ConfigServer / Clipboard           | M4        | partial     | Both build natively now (Clipboard via patch 0007); launcher runs them as services; no SystemServer yet |
 | SystemServer shim + LaunchServer   | M4        | not started | Keeps app code unmodified |
-| Launcher + resource env            | M4        | not started | Placeholder binary exists, builds and runs |
+| Launcher + resource env            | M4        | partial     | Headless launcher complete (socket takeover, services, screenshot); X11 session launch still to do |
 | App subset (Terminal, FileManager, Settings, ImageViewer, PixelPaint) | M4 | not started | |
 | FreeBSD support                    | M5        | not started | X-input path only; no evdev anywhere |
 | NetworkServer / AudioServer shims  | M6        | not started | Unblocks Browser/Mail/games |
@@ -26,6 +26,46 @@ Living tracker. Update in the same commit as the work it describes, and keep
 Record discoveries here as they happen (surprising `#ifdef` gaps, API quirks,
 decisions with trade-offs). Newest first.
 
+- 2026-08-30 — **M1 complete: headless vertical slice.** WindowServer (virtual
+  screen) + Clipboard + AnalogClock run natively over plain UDS; SIGUSR1 dumps
+  a verified PNG of the rendered app. Patches 0003–0007, launcher rewritten.
+  Exit criteria met: `ctest -R m1-headless` passes in ~3s, full serial ctest
+  238/238, and the whole patch set was re-verified on a pristine worktree of
+  the pin (apply → build → slice run). Findings:
+  - **`SOCKET_TAKEOVER` is the fd-passing hook.** Serenity services never bind
+    their own sockets; SystemServer pre-binds them and hands fds over via the
+    `SOCKET_TAKEOVER=path:fd[;path:fd]` env var (parsed in
+    `LibCore/SystemServerTakeover.cpp`). The launcher replicates this: it
+    binds `/tmp/portal/window`, `/tmp/portal/wm`, and each service's socket,
+    then spawns each child with the right takeover value. No Serenity code
+    needed changing for IPC itself.
+  - **Config files must pre-exist and use `Key=Value`.** `ConfigFile::open`
+    returns ENOENT even with `AllowWriting::Yes`, and its parser does not trim
+    whitespace from keys (`Mode = Virtual` stores the key `"Mode "`). The
+    launcher therefore writes a minimal virtual-screen INI itself.
+  - **WindowServer startup assumes kernel facilities** (patch 0005 makes each
+    tolerant instead of fatal): TTY graphics ioctls, `/dev/gpu` enumeration
+    (fallback screen layout), devicemap inotify watches, `/etc/Keyboard.ini`,
+    and `/sys/kernel/keymap`. All are now skipped/degraded gracefully on hosts.
+  - **Resource paths**: `resource://` URIs resolve through
+    `ResourceImplementation::the()`, which now honors `$SERENITY_RES` (patch
+    0004). WindowServer's raw `/res/...` literals (~10 sites: themes, icons,
+    cursors) go through a new `WindowServer::res_path()` helper.
+  - **Two nasty host-portability bugs found by instrumenting, not reading:**
+    (a) CPython sets `FD_CLOEXEC` on sockets created via its API — a Python
+    debug harness silently lost the takeover fds at exec; plain-C `socket()`
+    does not, so the real launcher was unaffected. (b) A `Core::Notifier`
+    held in a block-scoped `RefPtr` is destroyed before `loop.exec()`, which
+    unregisters its fd from the poll set — the screenshot notifier had to be
+    hoisted to function scope. Also: `Core::Timer::create_single_shot` does
+    **not** auto-start; callers must invoke `start()`.
+  - **Lagom now builds WindowServer, Clipboard, and AnalogClock unmodified**
+    (patch 0007). Details: Keyboard added to the standard lib list; `ASM`
+    language enabled (app icons embed as `.s` objects); a shim
+    `sys/devices/gpu.h` in the binary dir provides the GPU structs from a new
+    `GpuTypesHost.h` plus the original inline ioctl wrappers, because pulling
+    in Serenity's real `gpu.h` drags `Kernel/API/Ioctl.h`, whose enum members
+    collide with host ioctl macros.
 - 2026-08-29 — **M0 complete.** Pinned Serenity to `7784b1f535` and built the
   full LibGUI natively via Lagom (patches 0001 + 0002). Findings:
   - The long tail was tiny: **one** source fix for all 124 LibGUI translation

@@ -1,0 +1,405 @@
+From ce9bb074dcc2086204a6175d6432cfdc7fc1d687 Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory@serenade.local>
+Date: Sat, 30 Aug 2026 00:00:00 +0000
+Subject: [PATCH 5/7] WindowServer: Support booting on host systems
+
+Several startup steps assume Serenity kernel facilities that do not exist
+on host systems. Make them tolerant instead of fatal:
+
+- Skip the TTY graphics-mode switch (Serenity-only ioctl).
+- Allow overriding the config file path via $WINDOW_SERVER_CONFIG.
+- Resolve themes, icons, and cursor assets through a res_root() helper
+  that honors $SERENITY_RES.
+- Only watch input devicemap directories and /etc/Keyboard.ini when they
+  exist; there is no kernel keymap to read on hosts.
+- Add Screen::take_screenshot() (a copy of the front buffer) and an
+  optional SIGUSR1 handler that dumps it as PNG to $WINDOW_SERVER_SCREENSHOT,
+  for headless testing.
+
+diff --git a/Userland/Services/WindowServer/EventLoop.cpp b/Userland/Services/WindowServer/EventLoop.cpp
+index d930b6b60b..2d12363a62 100644
+--- a/Userland/Services/WindowServer/EventLoop.cpp
++++ b/Userland/Services/WindowServer/EventLoop.cpp
+@@ -36,11 +36,17 @@ EventLoop::EventLoop()
+         refresh_keyboard_devices();
+     };
+ 
+-    MUST(m_mouse_devices_watcher->add_watch("/tmp/system/devicemap/family/mouse/",
+-        Core::FileWatcherEvent::Type::ChildCreated | Core::FileWatcherEvent::Type::ChildDeleted));
++    // On host systems (Lagom builds) these devicemap directories do not exist;
++    // input arrives through other means, so only watch when present.
++    if (FileSystem::is_directory("/tmp/system/devicemap/family/mouse/"sv)) {
++        MUST(m_mouse_devices_watcher->add_watch("/tmp/system/devicemap/family/mouse/",
++            Core::FileWatcherEvent::Type::ChildCreated | Core::FileWatcherEvent::Type::ChildDeleted));
++    }
+ 
+-    MUST(m_keyboard_devices_watcher->add_watch("/tmp/system/devicemap/family/keyboard/",
+-        Core::FileWatcherEvent::Type::ChildCreated | Core::FileWatcherEvent::Type::ChildDeleted));
++    if (FileSystem::is_directory("/tmp/system/devicemap/family/keyboard/"sv)) {
++        MUST(m_keyboard_devices_watcher->add_watch("/tmp/system/devicemap/family/keyboard/",
++            Core::FileWatcherEvent::Type::ChildCreated | Core::FileWatcherEvent::Type::ChildDeleted));
++    }
+ 
+     refresh_keyboard_devices();
+     refresh_mouse_devices();
+diff --git a/Userland/Services/WindowServer/KeymapSwitcher.cpp b/Userland/Services/WindowServer/KeymapSwitcher.cpp
+index f5f66be80c..329bfea7bb 100644
+--- a/Userland/Services/WindowServer/KeymapSwitcher.cpp
++++ b/Userland/Services/WindowServer/KeymapSwitcher.cpp
+@@ -7,6 +7,7 @@
+ #include <AK/JsonObject.h>
+ #include <LibCore/ConfigFile.h>
+ #include <LibCore/Process.h>
++#include <LibFileSystem/FileSystem.h>
+ #include <WindowServer/KeymapSwitcher.h>
+ #include <spawn.h>
+ #include <unistd.h>
+@@ -21,7 +22,10 @@ KeymapSwitcher::KeymapSwitcher()
+         refresh();
+     };
+ 
+-    MUST(m_file_watcher->add_watch(m_keyboard_config, Core::FileWatcherEvent::Type::ContentModified));
++    // On host systems (Lagom builds) /etc/Keyboard.ini does not exist;
++    // refresh() handles that fine, so only watch when the file is present.
++    if (FileSystem::is_regular_file(ByteString(m_keyboard_config)))
++        MUST(m_file_watcher->add_watch(m_keyboard_config, Core::FileWatcherEvent::Type::ContentModified));
+ 
+     refresh();
+ }
+@@ -89,10 +93,19 @@ void KeymapSwitcher::next_keymap()
+ 
+ ByteString KeymapSwitcher::get_current_keymap() const
+ {
+-    auto proc_keymap = Core::File::open("/sys/kernel/keymap"sv, Core::File::OpenMode::Read).release_value_but_fixme_should_propagate_errors();
+-    auto proc_keymap_data = proc_keymap->read_until_eof().release_value_but_fixme_should_propagate_errors();
+-    auto json = JsonValue::from_string(proc_keymap_data).release_value_but_fixme_should_propagate_errors();
+-    auto const& keymap_object = json.as_object();
++    // On host systems (Lagom builds) there is no kernel keymap file; callers
++    // treat an empty result as "unknown" and fall back to the first keymap.
++    auto proc_keymap = Core::File::open("/sys/kernel/keymap"sv, Core::File::OpenMode::Read);
++    if (proc_keymap.is_error())
++        return {};
++    auto& keymap_file = proc_keymap.value();
++    auto proc_keymap_data = keymap_file->read_until_eof();
++    if (proc_keymap_data.is_error())
++        return {};
++    auto json = JsonValue::from_string(proc_keymap_data.value());
++    if (json.is_error())
++        return {};
++    auto const& keymap_object = json.value().as_object();
+     VERIFY(keymap_object.has_string("keymap"sv));
+     return keymap_object.get_byte_string("keymap"sv).value();
+ }
+diff --git a/Userland/Services/WindowServer/ResourcePath.h b/Userland/Services/WindowServer/ResourcePath.h
+new file mode 100644
+index 0000000000..e7e4b46fa5
+--- /dev/null
++++ b/Userland/Services/WindowServer/ResourcePath.h
+@@ -0,0 +1,30 @@
++/*
++ * Copyright (c) 2026, Gregory Norton.
++ *
++ * SPDX-License-Identifier: BSD-2-Clause
++ */
++
++#pragma once
++
++#include <AK/ByteString.h>
++#include <AK/Format.h>
++#include <AK/StringView.h>
++#include <cstdlib>
++
++namespace WindowServer {
++
++// Root of the Serenity resources: /res on Serenity itself, or the directory
++// pointed to by $SERENITY_RES when running on a host system (Lagom build).
++inline ByteString res_root()
++{
++    if (auto const* root = std::getenv("SERENITY_RES"))
++        return ByteString(root);
++    return "/res"sv;
++}
++
++inline ByteString res_path(StringView relative)
++{
++    return ByteString::formatted("{}/{}", res_root(), relative);
++}
++
++}
+diff --git a/Userland/Services/WindowServer/Screen.cpp b/Userland/Services/WindowServer/Screen.cpp
+index 42a69e56e9..0ea1ab7488 100644
+--- a/Userland/Services/WindowServer/Screen.cpp
++++ b/Userland/Services/WindowServer/Screen.cpp
+@@ -17,6 +17,7 @@
+ #include <LibCore/EventLoop.h>
+ #include <fcntl.h>
+ #include <stdio.h>
++#include <string.h>
+ #include <sys/devices/gpu.h>
+ #include <sys/mman.h>
+ #include <unistd.h>
+@@ -567,6 +568,16 @@ void Screen::flush_display_entire_framebuffer()
+         dbgln("Screen #{}: Error flushing display front buffer: {}", index(), return_value.error());
+ }
+ 
++NonnullRefPtr<Gfx::Bitmap> Screen::take_screenshot() const
++{
++    auto& front_bitmap = m_compositor_screen_data->m_front_bitmap;
++    VERIFY(front_bitmap);
++    auto bitmap = Gfx::Bitmap::create(front_bitmap->format(), front_bitmap->size(), this->scale_factor()).release_value();
++    for (int y = 0; y < front_bitmap->height(); ++y)
++        memcpy(bitmap->scanline_u8(y), front_bitmap->scanline_u8(y), front_bitmap->pitch());
++    return bitmap;
++}
++
+ void Screen::flush_display_front_buffer(int front_buffer_index, Gfx::IntRect& rect)
+ {
+     VERIFY(m_backend->m_can_device_flush_buffers);
+diff --git a/Userland/Services/WindowServer/Screen.h b/Userland/Services/WindowServer/Screen.h
+index 7f1303b1e9..e0717bcd78 100644
+--- a/Userland/Services/WindowServer/Screen.h
++++ b/Userland/Services/WindowServer/Screen.h
+@@ -174,6 +174,9 @@ public:
+     void flush_display_front_buffer(int front_buffer_index, Gfx::IntRect&);
+     void flush_display_entire_framebuffer();
+ 
++    // Copy of the current front buffer, for screenshots and testing.
++    NonnullRefPtr<Gfx::Bitmap> take_screenshot() const;
++
+     CompositorScreenData& compositor_screen_data() { return *m_compositor_screen_data; }
+ 
+ private:
+diff --git a/Userland/Services/WindowServer/ScreenBackend.h b/Userland/Services/WindowServer/ScreenBackend.h
+index e7930d3781..db59459384 100644
+--- a/Userland/Services/WindowServer/ScreenBackend.h
++++ b/Userland/Services/WindowServer/ScreenBackend.h
+@@ -10,6 +10,7 @@
+ #include <AK/Error.h>
+ #include <AK/Span.h>
+ #include <LibGfx/Color.h>
++#include <sys/devices/gpu.h>
+ #include <sys/ioctl.h>
+ 
+ namespace WindowServer {
+diff --git a/Userland/Services/WindowServer/Window.cpp b/Userland/Services/WindowServer/Window.cpp
+index 37d49c1a6b..e4d6cb008f 100644
+--- a/Userland/Services/WindowServer/Window.cpp
++++ b/Userland/Services/WindowServer/Window.cpp
+@@ -12,6 +12,7 @@
+ #include "ConnectionFromClient.h"
+ #include "Event.h"
+ #include "EventLoop.h"
++#include "ResourcePath.h"
+ #include "Screen.h"
+ #include "WindowManager.h"
+ #include <AK/Badge.h>
+@@ -26,7 +27,7 @@ namespace WindowServer {
+ 
+ static ByteString default_window_icon_path()
+ {
+-    return "/res/icons/16x16/window.png";
++    return res_path("icons/16x16/window.png"sv);
+ }
+ 
+ static Gfx::Bitmap& default_window_icon()
+diff --git a/Userland/Services/WindowServer/WindowFrame.cpp b/Userland/Services/WindowServer/WindowFrame.cpp
+index 8fcafc40a1..f526ac6177 100644
+--- a/Userland/Services/WindowServer/WindowFrame.cpp
++++ b/Userland/Services/WindowServer/WindowFrame.cpp
+@@ -15,6 +15,7 @@
+ #include <WindowServer/Compositor.h>
+ #include <WindowServer/Event.h>
+ #include <WindowServer/MultiScaleBitmaps.h>
++#include <WindowServer/ResourcePath.h>
+ #include <WindowServer/Screen.h>
+ #include <WindowServer/Window.h>
+ #include <WindowServer/WindowFrame.h>
+@@ -178,11 +179,11 @@ void WindowFrame::reload_config()
+         full_name.append("-hover.png"sv);
+         reload_bitmap(icon.hover_bitmap, full_name.string_view());
+     };
+-    reload_icon(s_minimize_icon, "window-minimize"sv, "/res/icons/16x16/downward-triangle.png"sv);
+-    reload_icon(s_maximize_icon, "window-maximize"sv, "/res/icons/16x16/upward-triangle.png"sv);
+-    reload_icon(s_restore_icon, "window-restore"sv, "/res/icons/16x16/window-restore.png"sv);
+-    reload_icon(s_close_icon, "window-close"sv, "/res/icons/16x16/window-close.png"sv);
+-    reload_icon(s_close_modified_icon, "window-close-modified"sv, "/res/icons/16x16/window-close-modified.png"sv);
++    reload_icon(s_minimize_icon, "window-minimize"sv, res_path("icons/16x16/downward-triangle.png"sv));
++    reload_icon(s_maximize_icon, "window-maximize"sv, res_path("icons/16x16/upward-triangle.png"sv));
++    reload_icon(s_restore_icon, "window-restore"sv, res_path("icons/16x16/window-restore.png"sv));
++    reload_icon(s_close_icon, "window-close"sv, res_path("icons/16x16/window-close.png"sv));
++    reload_icon(s_close_modified_icon, "window-close-modified"sv, res_path("icons/16x16/window-close-modified.png"sv));
+ 
+     auto load_shadow = [](ByteString const& path, ByteString& last_path, RefPtr<MultiScaleBitmaps>& shadow_bitmap) {
+         if (path.is_empty()) {
+diff --git a/Userland/Services/WindowServer/WindowManager.cpp b/Userland/Services/WindowServer/WindowManager.cpp
+index e678c8c8fd..792ada1fa3 100644
+--- a/Userland/Services/WindowServer/WindowManager.cpp
++++ b/Userland/Services/WindowServer/WindowManager.cpp
+@@ -8,6 +8,7 @@
+ #include "Compositor.h"
+ #include "EventLoop.h"
+ #include "Menu.h"
++#include "ResourcePath.h"
+ #include "Screen.h"
+ #include "Window.h"
+ #include <AK/Debug.h>
+@@ -2240,7 +2241,7 @@ void WindowManager::clear_theme_override()
+ {
+     m_theme_overridden = false;
+     auto previous_theme_name = g_config->read_entry("Theme", "Name");
+-    auto previous_theme = MUST(Gfx::load_system_theme(ByteString::formatted("/res/themes/{}.ini", previous_theme_name), m_preferred_color_scheme));
++    auto previous_theme = MUST(Gfx::load_system_theme(res_path(ByteString::formatted("themes/{}.ini", previous_theme_name)), m_preferred_color_scheme));
+     Gfx::set_system_theme(previous_theme);
+     m_palette = Gfx::PaletteImpl::create_with_anonymous_buffer(previous_theme);
+     invalidate_after_theme_or_font_change();
+@@ -2354,7 +2355,7 @@ WindowStack& WindowManager::get_rendering_window_stacks(WindowStack*& transition
+ 
+ void WindowManager::apply_cursor_theme(ByteString const& theme_name)
+ {
+-    auto theme_path = ByteString::formatted("/res/cursor-themes/{}/{}", theme_name, "Config.ini");
++    auto theme_path = res_path(ByteString::formatted("cursor-themes/{}/Config.ini", theme_name));
+     auto cursor_theme_config_or_error = Core::ConfigFile::open(theme_path);
+     if (cursor_theme_config_or_error.is_error()) {
+         dbgln("Unable to open cursor theme '{}': {}", theme_path, cursor_theme_config_or_error.error());
+@@ -2366,8 +2367,8 @@ void WindowManager::apply_cursor_theme(ByteString const& theme_name)
+     auto reload_cursor = [&](RefPtr<Cursor const>& cursor, ByteString const& name) {
+         bool is_current_cursor = current_cursor && current_cursor == cursor.ptr();
+ 
+-        static auto const s_default_cursor_path = "/res/cursor-themes/Default/arrow.x2y2.png"sv;
+-        cursor = Cursor::create(ByteString::formatted("/res/cursor-themes/{}/{}", theme_name, cursor_theme_config->read_entry("Cursor", name)), s_default_cursor_path);
++        static auto const s_default_cursor_path = res_path("cursor-themes/Default/arrow.x2y2.png"sv);
++        cursor = Cursor::create(res_path(ByteString::formatted("cursor-themes/{}/{}", theme_name, cursor_theme_config->read_entry("Cursor", name))), s_default_cursor_path);
+ 
+         if (is_current_cursor) {
+             Compositor::the().current_cursor_was_reloaded(cursor.ptr());
+diff --git a/Userland/Services/WindowServer/main.cpp b/Userland/Services/WindowServer/main.cpp
+index f8cb427395..da4f928f4c 100644
+--- a/Userland/Services/WindowServer/main.cpp
++++ b/Userland/Services/WindowServer/main.cpp
+@@ -7,23 +7,33 @@
+ #include "AppletManager.h"
+ #include "Compositor.h"
+ #include "EventLoop.h"
++#include "ResourcePath.h"
+ #include "Screen.h"
+ #include "ScreenLayout.h"
+ #include "WindowManager.h"
+ #include <LibCore/ConfigFile.h>
+ #include <LibCore/DirIterator.h>
++#include <LibCore/File.h>
+ #include <LibCore/System.h>
+ #include <LibFileSystem/FileSystem.h>
++#include <LibGfx/ImageFormats/PNGWriter.h>
+ #include <LibGfx/Palette.h>
+ #include <LibGfx/SystemTheme.h>
+ #include <LibMain/Main.h>
++#include <fcntl.h>
+ #include <signal.h>
++#include <stdio.h>
++#include <string.h>
+ #include <sys/devices/gpu.h>
++#include <unistd.h>
+ 
+ namespace WindowServer {
+ RefPtr<Core::ConfigFile> g_config;
+ }
+ 
++// Write end of the screenshot self-pipe (see below); -1 when disabled.
++static int s_screenshot_pipe_write_fd { -1 };
++
+ static bool try_auto_add_display_connector(WindowServer::ScreenLayout& screen_layout, ByteString const& device_path)
+ {
+     int display_connector_fd = open(device_path.characters(), O_RDWR | O_CLOEXEC);
+@@ -128,14 +138,17 @@ ErrorOr<int> serenity_main(Main::Arguments)
+     TRY(Core::System::sigaction(SIGCHLD, &act, nullptr));
+     TRY(Core::System::pledge("stdio video thread sendfd recvfd accept rpath wpath cpath unix proc getkeymap exec tty"));
+ 
+-    WindowServer::g_config = TRY(Core::ConfigFile::open("/etc/WindowServer.ini", Core::ConfigFile::AllowWriting::Yes));
++    ByteString config_path = "/etc/WindowServer.ini"sv;
++    if (auto const* override = getenv("WINDOW_SERVER_CONFIG"))
++        config_path = override;
++    WindowServer::g_config = TRY(Core::ConfigFile::open(config_path, Core::ConfigFile::AllowWriting::Yes));
+     auto theme_name = WindowServer::g_config->read_entry("Theme", "Name", "Default");
+ 
+     Optional<ByteString> custom_color_scheme_path = OptionalNone();
+     if (WindowServer::g_config->read_bool_entry("Theme", "LoadCustomColorScheme", false))
+         custom_color_scheme_path = WindowServer::g_config->read_entry("Theme", "CustomColorSchemePath");
+ 
+-    auto theme = TRY(Gfx::load_system_theme(ByteString::formatted("/res/themes/{}.ini", theme_name), custom_color_scheme_path));
++    auto theme = TRY(Gfx::load_system_theme(WindowServer::res_path(ByteString::formatted("themes/{}.ini", theme_name)), custom_color_scheme_path));
+     Gfx::set_system_theme(theme);
+     auto palette = Gfx::PaletteImpl::create_with_anonymous_buffer(theme);
+ 
+@@ -147,6 +160,7 @@ ErrorOr<int> serenity_main(Main::Arguments)
+     Gfx::FontDatabase::set_fixed_width_font_query(fixed_width_font_query);
+     Gfx::FontDatabase::set_window_title_font_query(window_title_font_query);
+ 
++#ifdef AK_OS_SERENITY
+     {
+         // FIXME: Map switched tty from screens.
+         // FIXME: Gracefully cleanup the TTY graphics mode.
+@@ -154,6 +168,7 @@ ErrorOr<int> serenity_main(Main::Arguments)
+         TRY(Core::System::ioctl(tty_fd, KDSETMODE, KD_GRAPHICS));
+         TRY(Core::System::close(tty_fd));
+     }
++#endif
+ 
+     WindowServer::EventLoop loop;
+ 
+@@ -238,6 +253,56 @@ ErrorOr<int> serenity_main(Main::Arguments)
+ 
+     TRY(Core::System::unveil(nullptr, nullptr));
+ 
++    // Optional headless support (host systems): when WINDOW_SERVER_SCREENSHOT
++    // is set, SIGUSR1 dumps the main screen's front buffer to that path as PNG.
++    // The notifier must outlive loop.exec() below, so keep it in this scope.
++    RefPtr<Core::Notifier> screenshot_notifier;
++    if (auto const* screenshot_path = getenv("WINDOW_SERVER_SCREENSHOT")) {
++        int pipe_fds[2];
++        if (::pipe(pipe_fds) == 0) {
++            ::fcntl(pipe_fds[0], F_SETFL, O_NONBLOCK);
++            ::fcntl(pipe_fds[0], F_SETFD, FD_CLOEXEC);
++            ::fcntl(pipe_fds[1], F_SETFL, O_NONBLOCK);
++            ::fcntl(pipe_fds[1], F_SETFD, FD_CLOEXEC);
++
++            s_screenshot_pipe_write_fd = pipe_fds[1];
++            struct sigaction screenshot_action = {};
++            screenshot_action.sa_handler = [](int) {
++                if (s_screenshot_pipe_write_fd < 0)
++                    return;
++                char c = 's';
++                (void)!::write(s_screenshot_pipe_write_fd, &c, 1);
++            };
++            TRY(Core::System::sigaction(SIGUSR1, &screenshot_action, nullptr));
++
++            screenshot_notifier = Core::Notifier::construct(pipe_fds[0], Core::Notifier::Type::Read);
++            screenshot_notifier->on_activation = [screenshot_path, pipe_fds] {
++                char drain_buffer[64];
++                while (::read(pipe_fds[0], drain_buffer, sizeof(drain_buffer)) > 0)
++                    continue;
++
++                auto bitmap = WindowServer::Screen::main().take_screenshot();
++                auto png_bytes = MUST(Gfx::PNGWriter::encode(*bitmap));
++                auto file_or_error = Core::File::open(ByteString(screenshot_path), Core::File::OpenMode::ReadWrite | Core::File::OpenMode::Truncate);
++                if (!file_or_error.is_error()) {
++                    auto& file = file_or_error.value();
++                    auto const* data = png_bytes.data();
++                    size_t remaining_size = png_bytes.size();
++                    while (remaining_size > 0) {
++                        auto written = MUST(file->write_some({ data, remaining_size }));
++                        data += written;
++                        remaining_size -= written;
++                    }
++                    dbgln("Wrote screenshot to {}", screenshot_path);
++                } else {
++                    dbgln("Failed to open {} for writing the screenshot: {}", screenshot_path, file_or_error.error());
++                }
++            };
++        } else {
++            dbgln("Failed to create the screenshot pipe: {}", ::strerror(errno));
++        }
++    }
++
+     dbgln("Entering WindowServer main loop");
+     loop.exec();
+     VERIFY_NOT_REACHED();

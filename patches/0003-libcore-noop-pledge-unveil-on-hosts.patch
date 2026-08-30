@@ -1,0 +1,71 @@
+From 75db2ac058945ca13a7d6495d7ec35c43fc9bfc0 Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory@serenade.local>
+Date: Sat, 30 Aug 2026 00:00:00 +0000
+Subject: [PATCH 3/7] LibCore: Make pledge() and unveil() no-ops on non-Serenity hosts
+
+These are Serenity (and OpenBSD) syscalls with no host equivalent;
+calling them on a Linux/BSD host invokes unrelated syscall numbers.
+Guard the implementations with AK_OS_SERENITY so host builds of
+Serenity userland can call them harmlessly.
+
+diff --git a/Userland/Libraries/LibCore/System.cpp b/Userland/Libraries/LibCore/System.cpp
+index 1ff2626bea..cab45abdd8 100644
+--- a/Userland/Libraries/LibCore/System.cpp
++++ b/Userland/Libraries/LibCore/System.cpp
+@@ -178,14 +178,22 @@ ErrorOr<void> beep(u16 tone, u16 milliseconds_duration)
+ 
+ ErrorOr<void> pledge(StringView promises, StringView execpromises)
+ {
++#ifdef AK_OS_SERENITY
+     Syscall::SC_pledge_params params {
+         { promises.characters_without_null_termination(), promises.length() },
+         { execpromises.characters_without_null_termination(), execpromises.length() },
+     };
+     int rc = syscall(SC_pledge, &params);
+     HANDLE_SYSCALL_RETURN_VALUE("pledge", rc, {});
++#else
++    // pledge(2) is a Serenity (and OpenBSD) syscall; it has no host equivalent.
++    (void)promises;
++    (void)execpromises;
++    return {};
++#endif
+ }
+ 
++#ifdef AK_OS_SERENITY
+ static ErrorOr<void> unveil_dynamic_loader()
+ {
+     static bool dynamic_loader_unveiled { false };
+@@ -229,9 +237,21 @@ ErrorOr<void> unveil(StringView path, StringView permissions)
+     int rc = syscall(SC_unveil, &params);
+     HANDLE_SYSCALL_RETURN_VALUE("unveil", rc, {});
+ }
++#else
++
++ErrorOr<void> unveil(StringView path, StringView permissions)
++{
++    // unveil(2) is a Serenity (and OpenBSD) syscall; it has no host equivalent.
++    (void)path;
++    (void)permissions;
++    return {};
++}
++
++#endif
+ 
+ ErrorOr<void> unveil_after_exec(StringView path, StringView permissions)
+ {
++#ifdef AK_OS_SERENITY
+     ByteString parsed_path;
+     Syscall::SC_unveil_params params {
+         static_cast<int>(UnveilFlags::AfterExec),
+@@ -246,6 +266,11 @@ ErrorOr<void> unveil_after_exec(StringView path, StringView permissions)
+ 
+     int rc = syscall(SC_unveil, &params);
+     HANDLE_SYSCALL_RETURN_VALUE("unveil", rc, {});
++#else
++    (void)path;
++    (void)permissions;
++    return {};
++#endif
+ }
+ 
+ ErrorOr<void> sendfd(int sockfd, int fd)

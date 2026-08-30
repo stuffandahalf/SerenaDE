@@ -15,6 +15,9 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 add_compile_options(-fno-exceptions)
 
+# Put our executables alongside Lagom's in Build/bin.
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+
 # ---------------------------------------------------------------------------
 # Serenity source location
 #
