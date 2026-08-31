@@ -1,0 +1,14 @@
+# M2 golden: drive the Calculator with synthetic clicks to compute 1 + 2 = 3.
+# The calculator opens at (96,56); its keypad grid columns are at
+# x = 125,171,209,247,285,323 and rows at y = 188,223,257,291.
+#   "1"=(171,257)  "+"=(285,291)  "2"=(209,257)  "="=(323,291)
+# The display should read "3" in the captured screenshot.
+delay 2500
+mouse click 171 257
+delay 400
+mouse click 285 291
+delay 400
+mouse click 209 257
+delay 400
+mouse click 323 291
+delay 1500

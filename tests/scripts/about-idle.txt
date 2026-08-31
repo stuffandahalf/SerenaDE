@@ -1,0 +1,3 @@
+# M2 golden: render the About dialog with no input (pure rendering regression).
+# The dialog needs a moment to appear; this just waits before capture.
+delay 4000

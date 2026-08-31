@@ -1,7 +1,7 @@
 From 75db2ac058945ca13a7d6495d7ec35c43fc9bfc0 Mon Sep 17 00:00:00 2001
 From: Gregory Norton <gregory@serenade.local>
 Date: Sat, 30 Aug 2026 00:00:00 +0000
-Subject: [PATCH 3/7] LibCore: Make pledge() and unveil() no-ops on non-Serenity hosts
+Subject: [PATCH 3/10] LibCore: Make pledge() and unveil() no-ops on non-Serenity hosts
 
 These are Serenity (and OpenBSD) syscalls with no host equivalent;
 calling them on a Linux/BSD host invokes unrelated syscall numbers.

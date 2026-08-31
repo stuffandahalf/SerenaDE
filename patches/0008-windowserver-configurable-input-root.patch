@@ -1,0 +1,84 @@
+From 48e987a5dbb90fe1ac5660c47f9748496dae6aac Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory@serenade.local>
+Date: Sun, 30 Aug 2026 00:00:00 +0000
+Subject: [PATCH 8/10] WindowServer: Allow configuring the input device root
+
+The keyboard and mouse device scans hardcode /dev/input. On host systems
+that tree either does not exist or holds evdev nodes in a format WindowServer
+does not understand, and headless test harnesses need to inject their own
+input sources.
+
+Honor $WINDOW_SERVER_INPUT_ROOT (defaulting to /dev/input) as the scan root,
+and accept FIFOs in addition to device nodes: Serenity device nodes are
+character devices, while host-side harnesses feed serialized MousePacket and
+KeyEvent structs through FIFOs, which the drain code reads identically.
+diff --git a/Userland/Services/WindowServer/EventLoop.cpp b/Userland/Services/WindowServer/EventLoop.cpp
+index 2d12363a62..ccadfeb392 100644
+--- a/Userland/Services/WindowServer/EventLoop.cpp
++++ b/Userland/Services/WindowServer/EventLoop.cpp
+@@ -14,12 +14,35 @@
+ #include <WindowServer/Screen.h>
+ #include <WindowServer/WMConnectionFromClient.h>
+ #include <WindowServer/WindowManager.h>
++#include <cstdlib>
+ #include <fcntl.h>
+ #include <stdio.h>
++#include <sys/stat.h>
+ #include <unistd.h>
+ 
+ namespace WindowServer {
+ 
++// On host systems the real /dev/input tree (if present) holds evdev nodes in
++// a format WindowServer does not understand, and headless test harnesses need
++// to inject their own input sources. WINDOW_SERVER_INPUT_ROOT lets both cases
++// point the device scan at a private directory instead.
++static StringView input_root()
++{
++    if (auto const* root = getenv("WINDOW_SERVER_INPUT_ROOT"))
++        return { root, strlen(root) };
++    return "/dev/input"sv;
++}
++
++// Serenity device nodes are character devices; headless harnesses inject
++// input through FIFOs, which the drain code reads identically.
++static bool is_input_source(ByteString const& path)
++{
++    struct stat st {};
++    if (::stat(path.characters(), &st) != 0)
++        return false;
++    return S_ISCHR(st.st_mode) || S_ISBLK(st.st_mode) || S_ISFIFO(st.st_mode);
++}
++
+ EventLoop::EventLoop()
+ {
+     m_window_server = MUST(IPC::MultiServer<ConnectionFromClient>::try_create("/tmp/portal/window"));
+@@ -59,11 +82,11 @@ void EventLoop::refresh_keyboard_devices()
+         device.notifier->close();
+     }
+     m_keyboard_devices.clear();
+-    Core::DirIterator di("/dev/input/keyboard/", Core::DirIterator::SkipParentAndBaseDir);
++    Core::DirIterator di(ByteString::formatted("{}/keyboard/", input_root()), Core::DirIterator::SkipParentAndBaseDir);
+     while (di.has_next()) {
+         auto path = di.next_path();
+-        auto full_path = ByteString::formatted("/dev/input/keyboard/{}", path);
+-        if (!FileSystem::is_device(full_path))
++        auto full_path = ByteString::formatted("{}/keyboard/{}", input_root(), path);
++        if (!is_input_source(full_path))
+             continue;
+ 
+         auto keyboard_fd_or_error = Core::System::open(full_path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+@@ -87,11 +110,11 @@ void EventLoop::refresh_mouse_devices()
+         device.notifier->close();
+     }
+     m_mouse_devices.clear();
+-    Core::DirIterator di("/dev/input/mouse/", Core::DirIterator::SkipParentAndBaseDir);
++    Core::DirIterator di(ByteString::formatted("{}/mouse/", input_root()), Core::DirIterator::SkipParentAndBaseDir);
+     while (di.has_next()) {
+         auto path = di.next_path();
+-        auto full_path = ByteString::formatted("/dev/input/mouse/{}", path);
+-        if (!FileSystem::is_device(full_path))
++        auto full_path = ByteString::formatted("{}/mouse/{}", input_root(), path);
++        if (!is_input_source(full_path))
+             continue;
+ 
+         auto mouse_fd_or_error = Core::System::open(full_path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);

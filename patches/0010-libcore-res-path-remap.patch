@@ -1,0 +1,49 @@
+From 3d9e5b7c1a2f4860b3c5d7e9f1a2b4c6d8e0f2a4 Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory@serenade.local>
+Date: Mon, 31 Aug 2026 00:00:00 +0000
+Subject: [PATCH 10/10] LibCore: Remap /res/* file opens to $SERENITY_RES on hosts
+
+Some GML resources reference absolute /res/... paths (for example the About
+dialog's brand banner uses bitmap: "/res/graphics/brand-banner.png"). Those
+opens go straight through Core::File and bypass the ResourceImplementation
+override, so on a host system -- where /res does not exist -- they fail with
+ENOENT and the resource silently fails to load.
+
+When a read-only open of a /res/* path fails with ENOENT, retry it against
+$SERENITY_RES (the resource root) before giving up. On real Serenity /res
+exists so the first open succeeds and this is a no-op.
+
+diff --git a/Userland/Libraries/LibCore/File.cpp b/Userland/Libraries/LibCore/File.cpp
+index bcfb18a78e..15b9d6f41a 100644
+--- a/Userland/Libraries/LibCore/File.cpp
++++ b/Userland/Libraries/LibCore/File.cpp
+@@ -5,8 +5,10 @@
+  * SPDX-License-Identifier: BSD-2-Clause
+  */
+ 
++#include <AK/String.h>
+ #include <LibCore/File.h>
+ #include <LibCore/System.h>
++#include <cstdlib>
+ #include <fcntl.h>
+ #include <unistd.h>
+ 
+@@ -102,7 +104,17 @@ ErrorOr<void> File::open_path(StringView filename, mode_t permissions)
+     VERIFY(m_fd == -1);
+     auto flags = open_mode_to_options(m_mode);
+ 
+-    m_fd = TRY(System::open(filename, flags, permissions));
++    auto result = System::open(filename, flags, permissions);
++    if (result.is_error() && result.error().is_syscall() && result.error().code() == ENOENT
++        && filename.starts_with("/res/"sv) && has_flag(m_mode, OpenMode::Read) && !has_flag(m_mode, OpenMode::Write)) {
++        // On host systems (Lagom builds) /res does not exist; $SERENITY_RES
++        // points at the resource root instead (see ResourceImplementation).
++        if (auto const* res_root = std::getenv("SERENITY_RES")) {
++            auto remapped = TRY(String::formatted("{}/{}", res_root, filename.substring_view(5)));
++            result = System::open(remapped, flags, permissions);
++        }
++    }
++    m_fd = TRY(result);
+     return {};
+ }
+ 

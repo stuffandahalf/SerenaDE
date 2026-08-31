@@ -7,22 +7,41 @@
 // serenade-launcher: run a Serenity GUI application headlessly on a host
 // system and capture a screenshot of the result.
 //
-// This is the M1 vertical slice: it brings up WindowServer (virtual screen
-// backend) plus optional IPC services and one app over plain Unix domain
-// sockets, waits for the app to render, asks WindowServer for a PNG
-// (SIGUSR1 + WINDOW_SERVER_SCREENSHOT), and tears everything down. No X11
-// involved yet.
+// It brings up WindowServer (virtual screen backend) plus optional IPC
+// services and one app over plain Unix domain sockets, optionally replays a
+// scripted input sequence, asks WindowServer for a PNG (SIGUSR1 +
+// WINDOW_SERVER_SCREENSHOT), optionally compares it against a golden image,
+// and tears everything down. No X11 involved yet.
 //
 // Usage:
 //   serenade-launcher --res <Base/res> --screenshot <out.png>
 //                     [--delay <ms>] [--width <n>] [--height <n>]
 //                     [--log-dir <dir>]
 //                     [--service <socket-path>=<binary>]...
+//                     [--input-root <dir>]
+//                     [--script <file>]
+//                     [--golden <png>] [--tolerance <channel-delta>]
 //                     <window-server-binary> <app-binary> [app args...]
 //
 // Services are Serenity IPC servers (e.g. Clipboard) that adopt a pre-bound
 // socket via the SOCKET_TAKEOVER mechanism, exactly like under SystemServer.
-// Only POSIX APIs are used; this must stay portable across Linux and BSDs.
+//
+// Input: with --input-root, the launcher creates <root>/keyboard/kbd0 and
+// <root>/mouse/mouse0 FIFOs and points WindowServer at them via
+// WINDOW_SERVER_INPUT_ROOT; --script then replays events into those FIFOs
+// using Serenity's on-the-wire KeyEvent/MousePacket formats. Script lines:
+//   delay <ms>
+//   mouse move <x> <y>
+//   mouse click <x> <y> [left|right]
+//   mouse drag <x1> <y1> <x2> <y2> [steps]
+//   mouse press <x> <y> [left|right]
+//   mouse release <x> <y>
+//   key <name>            (A-Z, 0-9, Space, Tab, Return, Escape, Backspace, Delete)
+
+#include "PngCompare.h"
+
+#include <Kernel/API/KeyCode.h>
+#include <Kernel/API/MousePacket.h>
 
 #include <cerrno>
 #include <csignal>
@@ -57,6 +76,10 @@ struct Options {
     int height = 768;
     Service services[max_service_count];
     int service_count = 0;
+    const char* input_root = nullptr;
+    const char* script_path = nullptr;
+    const char* golden_path = nullptr;
+    int tolerance = 16;
     pid_t window_server_pid = -1;
     const char* window_server = nullptr;
     const char* app = nullptr;
@@ -68,6 +91,8 @@ struct Options {
     fprintf(stderr,
         "Usage: %s --res <Base/res> --screenshot <out.png> [--delay <ms>] [--width <n>] [--height <n>] [--log-dir <dir>]\n"
         "              [--service <socket-path>=<binary>]...\n"
+        "              [--input-root <dir>] [--script <file>]\n"
+        "              [--golden <png>] [--tolerance <channel-delta>]\n"
         "              <window-server-binary> <app-binary> [app args...]\n",
         program);
     exit(2);
@@ -104,7 +129,15 @@ void parse_args(int argc, char** argv, Options& options)
             options.services[options.service_count].socket_path = spec;
             options.services[options.service_count].binary = separator + 1;
             ++options.service_count;
-        } else if (arg[0] == '-' && arg[1] != '\0')
+        } else if (!strcmp(arg, "--input-root"))
+            options.input_root = next();
+        else if (!strcmp(arg, "--script"))
+            options.script_path = next();
+        else if (!strcmp(arg, "--golden"))
+            options.golden_path = next();
+        else if (!strcmp(arg, "--tolerance"))
+            options.tolerance = atoi(next());
+        else if (arg[0] == '-' && arg[1] != '\0')
             usage(argv[0]);
         else
             break;
@@ -172,8 +205,6 @@ int open_log_file(const char* log_dir, const char* name)
 
 // Fork + exec a child that adopts the given listener socket(s) via
 // SOCKET_TAKEOVER (the same mechanism Serenity's SystemServer uses).
-// takeover_env is "path:fd[;path:fd]"; the child dups each listener onto its
-// fd number before exec.
 pid_t spawn_with_takeover(const char* program, char const* const* argv, int log_fd,
     int const* listener_fds, int const* takeover_fds, char const* const* paths, int count)
 {
@@ -233,6 +264,12 @@ long steady_clock_now_ms()
     return static_cast<long>(now.tv_sec) * 1000 + now.tv_nsec / 1000000;
 }
 
+void sleep_ms(int ms)
+{
+    struct timespec nap { ms / 1000, (ms % 1000) * 1000 * 1000 };
+    nanosleep(&nap, nullptr);
+}
+
 bool wait_for_socket(const char* path, int timeout_ms)
 {
     auto deadline = steady_clock_now_ms() + timeout_ms;
@@ -249,8 +286,7 @@ bool wait_for_socket(const char* path, int timeout_ms)
         }
         if (steady_clock_now_ms() >= deadline)
             return false;
-        struct timespec nap { 0, 50 * 1000 * 1000 };
-        nanosleep(&nap, nullptr);
+        sleep_ms(50);
     }
 }
 
@@ -263,8 +299,7 @@ bool wait_for_file(const char* path, int timeout_ms)
             return true;
         if (steady_clock_now_ms() >= deadline)
             return false;
-        struct timespec nap { 0, 50 * 1000 * 1000 };
-        nanosleep(&nap, nullptr);
+        sleep_ms(50);
     }
 }
 
@@ -306,6 +341,338 @@ void write_window_server_config(const char* log_dir, int width, int height)
         width, height);
     fclose(file);
     setenv("WINDOW_SERVER_CONFIG", path, 1);
+}
+
+// ---------------------------------------------------------------------------
+// Synthetic input (M2)
+//
+// WindowServer drains its input sources as raw KeyEvent / MousePacket structs
+// (the same format DeviceMapper writes on Serenity). We feed it through FIFOs
+// under a private input root, so no other part of the system is involved.
+// ---------------------------------------------------------------------------
+
+struct InputChannels {
+    int keyboard_fd = -1;
+    int mouse_fd = -1;
+    int screen_width = 0;
+    int screen_height = 0;
+};
+
+InputChannels setup_input_root(const char* input_root, int screen_width, int screen_height)
+{
+    InputChannels channels;
+    channels.screen_width = screen_width;
+    channels.screen_height = screen_height;
+    char path[4096];
+
+    make_ancestor_directories(input_root);
+    if (mkdir(input_root, 0755) < 0 && errno != EEXIST) {
+        fprintf(stderr, "serenade-launcher: mkdir %s: %s\n", input_root, strerror(errno));
+        exit(1);
+    }
+
+    snprintf(path, sizeof(path), "%s/keyboard", input_root);
+    if (mkdir(path, 0755) < 0 && errno != EEXIST) {
+        fprintf(stderr, "serenade-launcher: mkdir %s: %s\n", path, strerror(errno));
+        exit(1);
+    }
+    snprintf(path, sizeof(path), "%s/mouse", input_root);
+    if (mkdir(path, 0755) < 0 && errno != EEXIST) {
+        fprintf(stderr, "serenade-launcher: mkdir %s: %s\n", path, strerror(errno));
+        exit(1);
+    }
+
+    auto make_fifo = [&](const char* fifo_path) {
+        unlink(fifo_path);
+        if (mkfifo(fifo_path, 0644) < 0) {
+            fprintf(stderr, "serenade-launcher: mkfifo %s: %s\n", fifo_path, strerror(errno));
+            exit(1);
+        }
+    };
+
+    snprintf(path, sizeof(path), "%s/keyboard/kbd0", input_root);
+    make_fifo(path);
+    snprintf(path, sizeof(path), "%s/mouse/mouse0", input_root);
+    make_fifo(path);
+
+    // Open the FIFOs read-write: on Linux, opening a FIFO write-only (even
+    // with O_NONBLOCK) fails with ENXIO while no reader is attached, while
+    // O_RDWR|O_NONBLOCK always succeeds. WindowServer opens the read side
+    // during its device scan; our writes reach it through the shared FIFO.
+    snprintf(path, sizeof(path), "%s/keyboard/kbd0", input_root);
+    channels.keyboard_fd = open(path, O_RDWR | O_NONBLOCK);
+    snprintf(path, sizeof(path), "%s/mouse/mouse0", input_root);
+    channels.mouse_fd = open(path, O_RDWR | O_NONBLOCK);
+    if (channels.keyboard_fd < 0 || channels.mouse_fd < 0) {
+        fprintf(stderr, "serenade-launcher: opening input FIFOs: %s\n", strerror(errno));
+        exit(1);
+    }
+    return channels;
+}
+
+void write_mouse_packet(InputChannels& channels, int x, int y, unsigned char buttons, bool is_relative)
+{
+    MousePacket packet {};
+    if (is_relative) {
+        packet.x = x;
+        packet.y = y;
+    } else {
+        // ScreenInput scales absolute coordinates from a 16-bit range onto the
+        // screen (packet.x * width / 0xffff), so convert screen pixels to that
+        // wire format here.
+        packet.x = x * 0xffff / channels.screen_width;
+        packet.y = y * 0xffff / channels.screen_height;
+    }
+    packet.z = 0;
+    packet.w = 0;
+    packet.buttons = buttons;
+    packet.is_relative = is_relative;
+    if (write(channels.mouse_fd, &packet, sizeof(packet)) != static_cast<ssize_t>(sizeof(packet))) {
+        fprintf(stderr, "serenade-launcher: writing mouse packet: %s\n", strerror(errno));
+        exit(1);
+    }
+}
+
+void write_key_event(InputChannels& channels, KeyCode key, bool press)
+{
+    ::KeyEvent event {};
+    event.key = key;
+    event.map_entry_index = 0;
+    event.scancode = 0;
+    event.code_point = 0;
+    event.flags = press ? KeyModifier::Is_Press : 0;
+    event.caps_lock_on = false;
+    if (write(channels.keyboard_fd, &event, sizeof(event)) != static_cast<ssize_t>(sizeof(event))) {
+        fprintf(stderr, "serenade-launcher: writing key event: %s\n", strerror(errno));
+        exit(1);
+    }
+}
+
+KeyCode key_code_for_name(char const* name)
+{
+    // Values come from the pinned KeyCode enum -- never hardcode numbers.
+    struct Entry {
+        char const* name;
+        KeyCode code;
+    } static const table[] = {
+        { "A", KeyCode::Key_A }, { "B", KeyCode::Key_B }, { "C", KeyCode::Key_C },
+        { "D", KeyCode::Key_D }, { "E", KeyCode::Key_E }, { "F", KeyCode::Key_F },
+        { "G", KeyCode::Key_G }, { "H", KeyCode::Key_H }, { "I", KeyCode::Key_I },
+        { "J", KeyCode::Key_J }, { "K", KeyCode::Key_K }, { "L", KeyCode::Key_L },
+        { "M", KeyCode::Key_M }, { "N", KeyCode::Key_N }, { "O", KeyCode::Key_O },
+        { "P", KeyCode::Key_P }, { "Q", KeyCode::Key_Q }, { "R", KeyCode::Key_R },
+        { "S", KeyCode::Key_S }, { "T", KeyCode::Key_T }, { "U", KeyCode::Key_U },
+        { "V", KeyCode::Key_V }, { "W", KeyCode::Key_W }, { "X", KeyCode::Key_X },
+        { "Y", KeyCode::Key_Y }, { "Z", KeyCode::Key_Z },
+        { "0", KeyCode::Key_0 }, { "1", KeyCode::Key_1 }, { "2", KeyCode::Key_2 },
+        { "3", KeyCode::Key_3 }, { "4", KeyCode::Key_4 }, { "5", KeyCode::Key_5 },
+        { "6", KeyCode::Key_6 }, { "7", KeyCode::Key_7 }, { "8", KeyCode::Key_8 },
+        { "9", KeyCode::Key_9 },
+        { "Space", KeyCode::Key_Space },
+        { "Tab", KeyCode::Key_Tab },
+        { "Return", KeyCode::Key_Return },
+        { "Escape", KeyCode::Key_Escape },
+        { "Backspace", KeyCode::Key_Backspace },
+        { "Delete", KeyCode::Key_Delete },
+    };
+
+    char single[2] {};
+    if (strlen(name) == 1) {
+        single[0] = name[0];
+        if (single[0] >= 'a' && single[0] <= 'z')
+            single[0] = static_cast<char>(single[0] - 'a' + 'A');
+        for (auto const& entry : table)
+            if (!strcmp(entry.name, single))
+                return entry.code;
+    }
+    for (auto const& entry : table)
+        if (!strcmp(entry.name, name))
+            return entry.code;
+    fprintf(stderr, "serenade-launcher: unknown key name '%s'\n", name);
+    exit(2);
+}
+
+void mouse_move(InputChannels& channels, int x, int y)
+{
+    write_mouse_packet(channels, x, y, 0, false);
+}
+
+void mouse_click(InputChannels& channels, int x, int y, char const* button)
+{
+    auto which = !strcmp(button, "right") ? MousePacket::Button::RightButton : MousePacket::Button::LeftButton;
+    write_mouse_packet(channels, x, y, 0, false); // position
+    sleep_ms(20);
+    write_mouse_packet(channels, x, y, static_cast<unsigned char>(which), false); // press
+    sleep_ms(40);
+    write_mouse_packet(channels, x, y, 0, false); // release
+}
+
+void mouse_press(InputChannels& channels, int x, int y, char const* button)
+{
+    auto which = !strcmp(button, "right") ? MousePacket::Button::RightButton : MousePacket::Button::LeftButton;
+    write_mouse_packet(channels, x, y, 0, false); // position
+    sleep_ms(20);
+    write_mouse_packet(channels, x, y, static_cast<unsigned char>(which), false); // press
+}
+
+void mouse_release(InputChannels& channels, int x, int y)
+{
+    write_mouse_packet(channels, x, y, 0, false); // release
+}
+
+void mouse_drag(InputChannels& channels, int x1, int y1, int x2, int y2, int steps)
+{
+    if (steps < 2)
+        steps = 10;
+    write_mouse_packet(channels, x1, y1, 0, false);
+    sleep_ms(20);
+    write_mouse_packet(channels, x1, y1, MousePacket::Button::LeftButton, false); // press
+    for (int i = 1; i <= steps; ++i) {
+        int x = x1 + (x2 - x1) * i / steps;
+        int y = y1 + (y2 - y1) * i / steps;
+        sleep_ms(15);
+        write_mouse_packet(channels, x, y, MousePacket::Button::LeftButton, false);
+    }
+    sleep_ms(20);
+    write_mouse_packet(channels, x2, y2, 0, false); // release
+}
+
+void key_press(InputChannels& channels, char const* name)
+{
+    auto code = key_code_for_name(name);
+    write_key_event(channels, code, true);
+    sleep_ms(30);
+    write_key_event(channels, code, false);
+}
+
+void replay_script(const char* script_path, InputChannels& channels)
+{
+    FILE* file = fopen(script_path, "r");
+    if (!file) {
+        fprintf(stderr, "serenade-launcher: open %s: %s\n", script_path, strerror(errno));
+        exit(1);
+    }
+    char line[512];
+    int line_number = 0;
+    while (fgets(line, sizeof(line), file)) {
+        ++line_number;
+        // Strip trailing newline.
+        line[strcspn(line, "\r\n")] = '\0';
+        if (line[0] == '\0' || line[0] == '#')
+            continue;
+
+        char command[32] {};
+        int n = sscanf(line, "%31s", command);
+        if (n != 1) {
+            fprintf(stderr, "serenade-launcher: %s:%d: bad line\n", script_path, line_number);
+            exit(2);
+        }
+
+        if (!strcmp(command, "delay")) {
+            int ms = 0;
+            if (sscanf(line + 5, "%d", &ms) != 1 || ms < 0) {
+                fprintf(stderr, "serenade-launcher: %s:%d: bad delay\n", script_path, line_number);
+                exit(2);
+            }
+            sleep_ms(ms);
+        } else if (!strcmp(command, "mouse")) {
+            char action[32] {};
+            int a = sscanf(line + 5, "%31s", action);
+            if (a != 1) {
+                fprintf(stderr, "serenade-launcher: %s:%d: bad mouse command\n", script_path, line_number);
+                exit(2);
+            }
+            if (!strcmp(action, "move")) {
+                int x = 0, y = 0;
+                if (sscanf(line + 10, "%d %d", &x, &y) != 2) {
+                    fprintf(stderr, "serenade-launcher: %s:%d: bad mouse move\n", script_path, line_number);
+                    exit(2);
+                }
+                mouse_move(channels, x, y);
+            } else if (!strcmp(action, "click")) {
+                int x = 0, y = 0;
+                char button[16] = "left";
+                int parsed = sscanf(line + 11, "%d %d %15s", &x, &y, button);
+                if (parsed < 2) {
+                    fprintf(stderr, "serenade-launcher: %s:%d: bad mouse click\n", script_path, line_number);
+                    exit(2);
+                }
+                mouse_click(channels, x, y, button);
+            } else if (!strcmp(action, "drag")) {
+                int x1 = 0, y1 = 0, x2 = 0, y2 = 0, steps = 0;
+                if (sscanf(line + 10, "%d %d %d %d %d", &x1, &y1, &x2, &y2, &steps) < 4) {
+                    fprintf(stderr, "serenade-launcher: %s:%d: bad mouse drag\n", script_path, line_number);
+                    exit(2);
+                }
+                mouse_drag(channels, x1, y1, x2, y2, steps);
+            } else if (!strcmp(action, "press")) {
+                int x = 0, y = 0;
+                char button[16] = "left";
+                int parsed = sscanf(line + 11, "%d %d %15s", &x, &y, button);
+                if (parsed < 2) {
+                    fprintf(stderr, "serenade-launcher: %s:%d: bad mouse press\n", script_path, line_number);
+                    exit(2);
+                }
+                mouse_press(channels, x, y, button);
+            } else if (!strcmp(action, "release")) {
+                int x = 0, y = 0;
+                if (sscanf(line + 13, "%d %d", &x, &y) != 2) {
+                    fprintf(stderr, "serenade-launcher: %s:%d: bad mouse release\n", script_path, line_number);
+                    exit(2);
+                }
+                mouse_release(channels, x, y);
+            } else {
+                fprintf(stderr, "serenade-launcher: %s:%d: unknown mouse action '%s'\n", script_path, line_number, action);
+                exit(2);
+            }
+        } else if (!strcmp(command, "key")) {
+            char name[32] {};
+            if (sscanf(line + 4, "%31s", name) != 1) {
+                fprintf(stderr, "serenade-launcher: %s:%d: bad key command\n", script_path, line_number);
+                exit(2);
+            }
+            key_press(channels, name);
+        } else {
+            fprintf(stderr, "serenade-launcher: %s:%d: unknown command '%s'\n", script_path, line_number, command);
+            exit(2);
+        }
+    }
+    fclose(file);
+}
+
+bool compare_golden(const char* screenshot_path, const char* golden_path, int tolerance)
+{
+    auto report_load_failure = [](char const* path, AK::Error const& error) {
+        auto message = error.string_literal();
+        fprintf(stderr, "serenade-launcher: reading %s: %.*s\n",
+            path, static_cast<int>(message.length()), message.characters_without_null_termination());
+    };
+
+    auto actual_or_error = Serenade::load_png_bitmap({ screenshot_path, strlen(screenshot_path) });
+    if (actual_or_error.is_error()) {
+        report_load_failure(screenshot_path, actual_or_error.error());
+        return false;
+    }
+    auto golden_or_error = Serenade::load_png_bitmap({ golden_path, strlen(golden_path) });
+    if (golden_or_error.is_error()) {
+        report_load_failure(golden_path, golden_or_error.error());
+        return false;
+    }
+    auto const& actual = actual_or_error.value();
+    auto const& golden = golden_or_error.value();
+    auto result = Serenade::compare_pngs(actual, golden, tolerance);
+    if (!result.sizes_match) {
+        fprintf(stderr, "serenade-launcher: size mismatch: actual %dx%d vs golden %dx%d\n",
+            result.actual_width, result.actual_height, result.golden_width, result.golden_height);
+        return false;
+    }
+    size_t total = static_cast<size_t>(result.actual_width) * static_cast<size_t>(result.actual_height);
+    double fraction = static_cast<double>(result.differing_pixels) / static_cast<double>(total);
+    printf("serenade-launcher: golden comparison: %zu/%zu pixels differ (max delta %d, tolerance %d)\n",
+        result.differing_pixels, total, result.max_channel_delta, tolerance);
+    // Same-machine rendering is deterministic; allow a tiny sliver for
+    // anti-aliasing edge cases.
+    return fraction <= 0.001;
 }
 
 void cleanup(Options& options, pid_t window_server_pid)
@@ -366,6 +733,16 @@ int main(int argc, char** argv)
     setenv("WINDOW_SERVER_SCREENSHOT", options.screenshot_path, 1);
     write_window_server_config(options.log_dir, options.width, options.height);
 
+    // Create the input FIFOs before WindowServer starts: its device scan runs
+    // during construction and there is no devicemap watcher on host systems to
+    // trigger a rescan later. (Opening the write ends early is safe -- with
+    // O_NONBLOCK the data just buffers in the FIFO until WS drains it.)
+    InputChannels input {};
+    if (options.input_root) {
+        setenv("WINDOW_SERVER_INPUT_ROOT", options.input_root, 1);
+        input = setup_input_root(options.input_root, options.width, options.height);
+    }
+
     struct sigaction action {};
     action.sa_handler = on_signal;
     sigemptyset(&action.sa_mask);
@@ -414,10 +791,13 @@ int main(int argc, char** argv)
     pid_t app_pid = spawn_plain(options.app, options.app_args, app_log);
     s_app_pid = app_pid;
 
-    {
-        struct timespec nap { options.delay_ms / 1000, (options.delay_ms % 1000) * 1000 * 1000 };
-        nanosleep(&nap, nullptr);
+    if (options.script_path) {
+        // Give the app a moment to create its window before driving it.
+        sleep_ms(1500);
+        replay_script(options.script_path, input);
     }
+
+    sleep_ms(options.delay_ms);
 
     kill(options.window_server_pid, SIGUSR1);
     bool got_screenshot = wait_for_file(options.screenshot_path, 10000);
@@ -433,5 +813,13 @@ int main(int argc, char** argv)
         return 1;
     }
     printf("serenade-launcher: wrote %s\n", options.screenshot_path);
+
+    if (options.golden_path) {
+        if (!compare_golden(options.screenshot_path, options.golden_path, options.tolerance)) {
+            fprintf(stderr, "serenade-launcher: screenshot does not match golden %s\n", options.golden_path);
+            return 1;
+        }
+        printf("serenade-launcher: screenshot matches golden %s\n", options.golden_path);
+    }
     return 0;
 }

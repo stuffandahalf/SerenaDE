@@ -219,20 +219,27 @@ FreeBSD.
 
 ### Current status
 
-**M1 — complete (2026-08-30).** Headless vertical slice works end-to-end:
-WindowServer (virtual screen) + Clipboard + AnalogClock run natively over plain
-Unix sockets and produce a verified PNG of the rendered app. Patches 0003–0007
-cover host-boot tolerance (pledge/unveil no-ops, `$SERENITY_RES`, tolerant
-device/config/keymap handling, screenshot hook) and extend Lagom to build
-WindowServer, Clipboard, and AnalogClock unmodified. The launcher
-(`src/Launcher`) pre-binds all service sockets and hands them over via the
-`SOCKET_TAKEOVER` env var — the same mechanism Serenity's SystemServer uses —
-then captures a screenshot on SIGUSR1. Exit criteria met: ctest
-`m1-headless-analog-clock-screenshot` passes (~3s), full serial ctest **238/238**,
-and the whole patch set was re-verified from a pristine checkout of the pin
-(apply → build → slice run). Caveat: the CI job has not run yet (no push);
-treat M0/M1 as done-locally until first CI pass. Next: **M2** — synthetic input
-+ golden-screenshot regression tests. See `docs/PORTING.md`.
+**M2 — complete (2026-08-31).** Synthetic input + golden-screenshot harness work
+end-to-end. Input is injected by feeding raw `KeyEvent`/`MousePacket` structs
+through FIFOs under a private input root (patch 0008: `$WINDOW_SERVER_INPUT_ROOT`
++ accept FIFOs as input sources), so no new WindowServer IPC socket was needed;
+the launcher (`src/Launcher`) replays scripts of `delay`/`mouse`/`key` commands,
+converting absolute mouse coords to the wire's 16-bit range. Patches 0009–0010
+extend Lagom to build LibDesktop, About, Calculator, and LaunchServer, and remap
+read-only `/res/*` opens to `$SERENITY_RES` on hosts (About's GML references an
+absolute `/res/...` bitmap path). Four deterministic golden tests pass across three
+apps: Calculator (clicks compute 1+2=3), About (idle render), and the
+`resize-test-window` fixture (titlebar-drag move + border-drag resize — real apps
+either `set_resizable(false)` or are non-movable dialogs, so a purpose-built normal
+window proves move/resize). AnalogClock is deliberately excluded: it renders
+wall-clock time and is non-deterministic. Exit criteria met: full serial ctest
+**242/242**, and the whole 10-patch set was re-verified from a pristine checkout of
+the pin (apply → build → M2 slice) — that pass caught and fixed two stale hunks in
+0008 (a `StringView` return) and 0009 (a spurious LibDesktop `compile_ipc` that
+collided with the LaunchServer service's generated header; replaced by building the
+LaunchServer service, which emits the IPC headers into a global include dir).
+Caveat: CI still not run (no push); treat M0–M2 as done-locally until first CI pass.
+Next: **M3** — real X11 display + real input. See `docs/PORTING.md`.
 
 ## Patch workflow
 

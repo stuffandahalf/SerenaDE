@@ -1,0 +1,46 @@
+From 46fda0330e61bb3c613fdf8784205e7485ffaed1 Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory@serenade.local>
+Date: Sun, 30 Aug 2026 00:00:00 +0000
+Subject: [PATCH 9/10] Lagom: Build LibDesktop, About, and Calculator on hosts
+
+LibDesktop is three small files whose dependencies (LibCore, LibIPC, LibGfx,
+LibGUI, LibFileSystem, LibURL) are all available to the host build; generate
+the LaunchServer IPC endpoint headers it consumes in its own directory,
+following the pattern used for LibGUI.
+
+About and Calculator then build unmodified on host systems, joining
+AnalogClock as applications usable by the headless test harness.
+diff --git a/Meta/Lagom/CMakeLists.txt b/Meta/Lagom/CMakeLists.txt
+index 94665e42be..af38298b07 100644
+--- a/Meta/Lagom/CMakeLists.txt
++++ b/Meta/Lagom/CMakeLists.txt
+@@ -471,6 +471,7 @@ if (BUILD_LAGOM)
+         Config
+         Crypto
+         Cpp
++        Desktop
+         DeviceTree
+         DNS
+         Diff
+@@ -559,7 +560,9 @@ if (BUILD_LAGOM)
+         add_serenity_subdirectory(Userland/Services)
+ 
+         # Applications that build unmodified on host systems.
++        add_serenity_subdirectory(Userland/Applications/About)
+         add_serenity_subdirectory(Userland/Applications/AnalogClock)
++        add_serenity_subdirectory(Userland/Applications/Calculator)
+ 
+         # Lagom Utilities
+         lagom_utility(abench SOURCES ../../Userland/Utilities/abench.cpp LIBS LibMain LibFileSystem LibAudio)
+diff --git a/Userland/Services/CMakeLists.txt b/Userland/Services/CMakeLists.txt
+index d911a1ebc4..2ef6a3ae08 100644
+--- a/Userland/Services/CMakeLists.txt
++++ b/Userland/Services/CMakeLists.txt
+@@ -2,6 +2,7 @@ add_subdirectory(Clipboard)
+ add_subdirectory(ConfigServer)
+ add_subdirectory(EchoServer)
+ add_subdirectory(FileOperation)
++add_subdirectory(LaunchServer)
+ add_subdirectory(LookupServer)
+ add_subdirectory(SSHServer)
+ add_subdirectory(WebServer)

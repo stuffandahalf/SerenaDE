@@ -1,7 +1,7 @@
 From 7b45c59e1a401979073a8244ea918410513bb6c8 Mon Sep 17 00:00:00 2001
 From: Gregory Norton <gregory@serenade.local>
 Date: Sat, 30 Aug 2026 00:00:00 +0000
-Subject: [PATCH 1/7] LibGUI: Include <limits.h> for INT_MIN
+Subject: [PATCH 1/10] LibGUI: Include <limits.h> for INT_MIN
 
 Window.cpp uses INT_MIN but relied on a transitive include from the
 Serenity LibC headers, which does not exist when building against a

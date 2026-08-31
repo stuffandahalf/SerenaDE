@@ -1,7 +1,7 @@
 From ae671bc9fcbaa3c57130566070e958aa0a6a60ac Mon Sep 17 00:00:00 2001
 From: Gregory Norton <gregory@serenade.local>
 Date: Sat, 30 Aug 2026 00:00:00 +0000
-Subject: [PATCH 7/7] Lagom: Build WindowServer, Clipboard, and AnalogClock on hosts
+Subject: [PATCH 7/10] Lagom: Build WindowServer, Clipboard, and AnalogClock on hosts
 
 WindowServer, Clipboard, and the AnalogClock application build
 unmodified against the host toolchain once their dependencies are in

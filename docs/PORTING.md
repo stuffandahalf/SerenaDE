@@ -9,13 +9,13 @@ Living tracker. Update in the same commit as the work it describes, and keep
 | ---------------------------------- | --------- | ----------- | ----- |
 | Serenity pin (FetchSerenity + CI)  | M0        | done        | `7784b1f535` in both places; CI job unrun (no push yet) |
 | Lagom build of LibGUI              | M0        | done        | Patch 0002; full lib links as `liblagom-gui.so` |
-| ctest fully green                  | M0/M1     | done*       | 238/238 serial incl. M1 slice test; `-j` parallel is flaky (see log) — run serially |
+| ctest fully green                  | M0–M2     | done*       | 242/242 serial incl. M1 slice + 4 M2 golden tests; `-j` parallel is flaky (see log) — run serially |
 | Headless vertical slice (1 app → PNG) | M1      | done        | WindowServer + AnalogClock + Clipboard → PNG; ctest `m1-headless-analog-clock-screenshot`; pristine-verified |
-| Synthetic input + golden tests     | M2        | not started | Regression net for everything after |
+| Synthetic input + golden tests     | M2        | done        | FIFO input root (patch 0008); 4 deterministic goldens across Calculator/About/resize-fixture; pristine-verified |
 | X11 screen backend                 | M3        | not started | XShm dirty-rect flush |
 | X11 input backend                  | M3        | not started | Only real input backend (no evdev, by design) |
 | ConfigServer / Clipboard           | M4        | partial     | Both build natively now (Clipboard via patch 0007); launcher runs them as services; no SystemServer yet |
-| SystemServer shim + LaunchServer   | M4        | not started | Keeps app code unmodified |
+| SystemServer shim + LaunchServer   | M4        | partial     | LaunchServer builds natively (patch 0009) and runs as a Calculator dependency; SystemServer shim still to do |
 | Launcher + resource env            | M4        | partial     | Headless launcher complete (socket takeover, services, screenshot); X11 session launch still to do |
 | App subset (Terminal, FileManager, Settings, ImageViewer, PixelPaint) | M4 | not started | |
 | FreeBSD support                    | M5        | not started | X-input path only; no evdev anywhere |
@@ -25,6 +25,51 @@ Living tracker. Update in the same commit as the work it describes, and keep
 
 Record discoveries here as they happen (surprising `#ifdef` gaps, API quirks,
 decisions with trade-offs). Newest first.
+
+- 2026-08-31 — **M2 complete: synthetic input + golden-screenshot harness.**
+  Programmatic click/drag/resize work; four deterministic golden tests pass across
+  three apps (Calculator clicks → "3", About idle render, resize-fixture move+resize).
+  Full serial ctest 242/242; the whole 10-patch set was re-verified from a pristine
+  checkout of the pin (apply → build → M2 slice). Findings:
+  - **Input is injected through FIFOs, not a new IPC socket.** Patch 0008 adds
+    `$WINDOW_SERVER_INPUT_ROOT` and makes the device scan accept FIFOs (in addition
+    to char/block devices). The launcher writes raw `KeyEvent`/`MousePacket` structs
+    into per-device FIFOs; WindowServer's existing drain code reads them unchanged.
+    No WindowServer IPC surface changed — much smaller blast radius than a bespoke
+    input socket.
+  - **Absolute mouse coords are 16-bit scaled.** `Screen.cpp` maps the wire value
+    as `x * width / 0xffff`, so the launcher must convert screen pixels to the wire
+    range (`x * 0xffff / screen_width`). Forgetting this is the #1 "input does
+    nothing" trap — the cursor lands in a corner.
+  - **FIFO open mode + ordering matter on Linux.** `O_WRONLY|O_NONBLOCK` returns
+    ENXIO while no reader is attached; open the write ends with `O_RDWR|O_NONBLOCK`.
+    And the FIFOs must exist *before* WindowServer starts (its device scan runs at
+    construction and there is no devicemap rescan on hosts).
+  - **The granular `mouse move` command releases a held button** (it sends
+    `buttons=0`), which aborts a mid-drag. Use the built-in `mouse drag` (which holds
+    the button) for move/resize; start the drag *on* the frame border — interior
+    points are content hits routed to the client, not the frame handler.
+  - **Real apps are poor move/resize targets.** AnalogClock and Calculator call
+    `set_resizable(false)`; About is a non-Normal dialog whose `WindowFrame` returns
+    early for frame events. So the M2 fixture `resize-test-window` (a normal,
+    resizable window at a fixed position) is what proves move/resize. It also logs its
+    client rect to stderr so scripts can target the titlebar/border precisely.
+  - **Calculator needs LaunchServer running** (LibDesktop IPC at
+    `/tmp/session/0/portal/launch`). Patch 0009 builds it as a Lagom service; the
+    golden-test CMake wires it in as an extra `--service` for that one test.
+  - **About's GML uses an absolute `/res/...` bitmap path**, bypassing the
+    `$SERENITY_RES` ResourceImplementation override. Patch 0010 makes `Core::File`
+    remap a read-only `/res/*` open to `$SERENITY_RES` on ENOENT (no-op on real
+    Serenity, where `/res` exists).
+  - **AnalogClock is deliberately not a golden target**: it renders wall-clock time,
+    so its pixels drift between capture and re-run (a full clock-face's worth of
+    differing pixels). Golden targets must be deterministic.
+  - **Pristine verification caught two stale hunks** the dev tree had drifted past:
+    0008 returned a bare `const char*` where a `StringView` is required (AK has no
+    implicit `const char*`→`StringView`; use `{ptr, strlen(ptr)}`), and 0009 carried
+    a spurious LibDesktop `compile_ipc` block that collided with the LaunchServer
+    service's generated `LaunchServerEndpoint.h` target. Both regenerated from the
+    dev tree's final state; the patched tree is now byte-identical to it.
 
 - 2026-08-30 — **M1 complete: headless vertical slice.** WindowServer (virtual
   screen) + Clipboard + AnalogClock run natively over plain UDS; SIGUSR1 dumps

@@ -1,7 +1,7 @@
 From 592755295cb1d0292ff423f1640a548181c1b4f6 Mon Sep 17 00:00:00 2001
 From: Gregory Norton <gregory@serenade.local>
 Date: Sat, 30 Aug 2026 00:00:00 +0000
-Subject: [PATCH 6/7] LibKeyboard: Tolerate a missing kernel keymap on host systems
+Subject: [PATCH 6/10] LibKeyboard: Tolerate a missing kernel keymap on host systems
 
 setkeymap()/getkeymap() are Serenity LibC wrappers around kernel syscalls.
 On host systems there is no kernel keymap; report ENOSYS instead of

@@ -1,0 +1,16 @@
+# M2 golden: exercise the resize-test-window fixture with a click and a
+# border-drag resize (programmatic move is covered by the AnalogClock test).
+#
+# The fixture opens with its content rect at (100,80) size 300x200, so the
+# client area spans x[100,400] y[80,280]. The frame adds a ~19px titlebar on
+# top and a 1px border. Key points (screen coords):
+#   button center  = (250,184)
+#   bottom border  = y~282 (just below the content's bottom edge at y=280)
+#
+# Steps: click the button (label -> "Clicked 1 time"), then drag the bottom
+# border straight down by +118px to grow the window.
+delay 3000
+mouse click 250 184
+delay 500
+mouse drag 300 282 300 400 12
+delay 1500

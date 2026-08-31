@@ -1,7 +1,7 @@
 From 78e4774bc5d865758b269f9de031236832ca3f18 Mon Sep 17 00:00:00 2001
 From: Gregory Norton <gregory@serenade.local>
 Date: Sat, 30 Aug 2026 00:00:00 +0000
-Subject: [PATCH 4/7] LibCore: Allow overriding the resource root via $SERENITY_RES
+Subject: [PATCH 4/10] LibCore: Allow overriding the resource root via $SERENITY_RES
 
 On host systems /res does not exist. When nothing has installed a custom
 ResourceImplementation, honor $SERENITY_RES as the resource root (e.g.
