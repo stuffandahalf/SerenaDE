@@ -22,15 +22,30 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            cmake ninja-build clang lld git \
+            cmake ninja-build git wget gpg \
             libx11-dev libxext-dev # Xlib + XShm (M3)
 
-      # Clang is required: GCC 16 miscompiles AK::Vector placement-new under
+      # Pin the compiler to Clang 22 from apt.llvm.org. This Serenity pin needs a
+      # recent Clang: it relies on __GCC_DESTRUCTIVE_SIZE (AK/Platform.h cache-line
+      # alignment) and uses constexpr patterns that older Clang rejects under -Werror.
+      # ubuntu-latest's distro clang is too old and breaks the build (see
+      # docs/PORTING.md). apt.llvm.org ships 22.1.8, matching the dev environment.
+      - name: Install Clang 22 (apt.llvm.org)
+        run: |
+          CODENAME="$(lsb_release -cs)"
+          wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key \
+            | sudo gpg --dearmor -o /usr/share/keyrings/llvm-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/llvm-archive-keyring.gpg] https://apt.llvm.org/${CODENAME}/ llvm-toolchain-${CODENAME}-22 main" \
+            | sudo tee /etc/apt/sources.list.d/llvm-22.list
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang-22 lld-22
+
+      # Clang is required: GCC miscompiles AK::Vector placement-new under
       # -Werror=stringop-overflow (false positive, see docs/PORTING.md).
       - name: Configure
         run: >
           cmake -B Build -G Ninja
-          -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+          -DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22
           -DSERENITY_SOURCE_DIR=${{ github.workspace }}/deps/serenity
 
       - name: Build

@@ -1,7 +1,7 @@
 From 48e987a5dbb90fe1ac5660c47f9748496dae6aac Mon Sep 17 00:00:00 2001
 From: Gregory Norton <gregory@serenade.local>
 Date: Sun, 30 Aug 2026 00:00:00 +0000
-Subject: [PATCH 8/10] WindowServer: Allow configuring the input device root
+Subject: [PATCH 8/11] WindowServer: Allow configuring the input device root
 
 The keyboard and mouse device scans hardcode /dev/input. On host systems
 that tree either does not exist or holds evdev nodes in a format WindowServer

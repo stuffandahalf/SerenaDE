@@ -1,7 +1,7 @@
 From 3d9e5b7c1a2f4860b3c5d7e9f1a2b4c6d8e0f2a4 Mon Sep 17 00:00:00 2001
 From: Gregory Norton <gregory@serenade.local>
 Date: Mon, 31 Aug 2026 00:00:00 +0000
-Subject: [PATCH 10/10] LibCore: Remap /res/* file opens to $SERENITY_RES on hosts
+Subject: [PATCH 10/11] LibCore: Remap /res/* file opens to $SERENITY_RES on hosts
 
 Some GML resources reference absolute /res/... paths (for example the About
 dialog's brand banner uses bitmap: "/res/graphics/brand-banner.png"). Those

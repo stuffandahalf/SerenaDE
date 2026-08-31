@@ -26,6 +26,26 @@ Living tracker. Update in the same commit as the work it describes, and keep
 Record discoveries here as they happen (surprising `#ifdef` gaps, API quirks,
 decisions with trade-offs). Newest first.
 
+ - 2026-08-31 — **CI toolchain mismatch: pinned CI to Clang 22.** The first real CI
+   runs (GitHub `ubuntu-latest` = Ubuntu noble) failed in AK for a compiler-*version*
+   gap, not a SerenaDE bug: local dev is Arch (Clang 22.1.8), while noble's apt ships
+   Clang 18. Two distinct errors surfaced on the older Clang:
+   - `-Winvalid-constexpr` on `seconds_since_epoch_to_year()` (`AK/Time.h`): it
+     structured-binds the non-literal `Tuple` from `days_since_epoch_to_date()`, so it
+     can never be a constant expression; Clang 18 diagnoses that, Clang 22 doesn't.
+   - `use of undeclared identifier '__GCC_DESTRUCTIVE_SIZE'` (`AK/Platform.h` →
+     `SharedCircularQueue.h`): `AK_SYSTEM_CACHE_ALIGNMENT_SIZE` is `__GCC_DESTRUCTIVE_SIZE`,
+     a builtin Clang only defines in newer versions (22 defines it as 64; 18 does not).
+   Root-cause fix: **pin the CI compiler to Clang 22** via apt.llvm.org (ships 22.1.8,
+   matching dev) rather than patching Serenity files one-by-one — that second error was
+   the tell that whack-a-mole was the wrong strategy. `ci.yml` now installs
+   `clang-22`/`lld-22` from apt.llvm.org (dynamic `lsb_release -cs` codename) and configures
+   with `-DCMAKE_CXX_COMPILER=clang++-22`. As defense-in-depth we also kept **patch 0011**
+   (drop the dead `constexpr`, add `inline`) so that specific case is correct even on an
+   older Clang. Lesson: a from-scratch "CI simulation" built with the *local* toolchain is
+   misleading — it only proves the patch set applies/builds locally, not on CI's compiler;
+   pinning the toolchain makes the two agree.
+
 - 2026-08-31 — **M2 complete: synthetic input + golden-screenshot harness.**
   Programmatic click/drag/resize work; four deterministic golden tests pass across
   three apps (Calculator clicks → "3", About idle render, resize-fixture move+resize).

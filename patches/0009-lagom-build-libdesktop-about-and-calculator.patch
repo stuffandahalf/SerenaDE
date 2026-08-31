@@ -1,7 +1,7 @@
 From 46fda0330e61bb3c613fdf8784205e7485ffaed1 Mon Sep 17 00:00:00 2001
 From: Gregory Norton <gregory@serenade.local>
 Date: Sun, 30 Aug 2026 00:00:00 +0000
-Subject: [PATCH 9/10] Lagom: Build LibDesktop, About, and Calculator on hosts
+Subject: [PATCH 9/11] Lagom: Build LibDesktop, About, and Calculator on hosts
 
 LibDesktop is three small files whose dependencies (LibCore, LibIPC, LibGfx,
 LibGUI, LibFileSystem, LibURL) are all available to the host build; generate

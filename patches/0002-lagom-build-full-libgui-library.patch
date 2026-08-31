@@ -1,7 +1,7 @@
 From 105728cf065d709d1db479778f3a51f3ef763679 Mon Sep 17 00:00:00 2001
 From: Gregory Norton <gregory@serenade.local>
 Date: Sat, 30 Aug 2026 00:00:00 +0000
-Subject: [PATCH 2/10] Lagom: Build the full LibGUI library on host systems
+Subject: [PATCH 2/11] Lagom: Build the full LibGUI library on host systems
 
 The Lagom build only compiled six LibGUI files, which is not enough to
 link GUI applications or WindowServer. Add GUI (and its Config dependency)

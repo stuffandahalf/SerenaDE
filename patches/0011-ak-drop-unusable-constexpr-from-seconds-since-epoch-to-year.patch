@@ -1,0 +1,36 @@
+From 8b2f6d4e0c3a5f719b2d4e6f8a0c2b4d6e8f0a2c Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory@serenade.local>
+Date: Mon, 31 Aug 2026 00:00:00 +0000
+Subject: [PATCH 11/11] AK: Drop unusable constexpr from seconds_since_epoch_to_year
+
+seconds_since_epoch_to_year() is declared constexpr but structured-binds the
+non-literal Tuple returned by days_since_epoch_to_date(), so it can never
+actually be evaluated as a constant expression. Newer Clang tolerates this,
+but older Clang (e.g. the v18 shipped with Ubuntu's apt) rejects it with
+-Winvalid-constexpr, which -Werror turns into a hard error -- breaking host
+builds on those toolchains.
+
+Drop constexpr (no caller uses it in a constant-expression context: touch and
+the timezone code generator call it at runtime). `inline` is added explicitly
+because constexpr previously implied it, and this header is included by many
+translation units.
+
+diff --git a/AK/Time.h b/AK/Time.h
+index a6ef85de1e..7355418335 100644
+--- a/AK/Time.h
++++ b/AK/Time.h
+@@ -156,7 +156,13 @@ constexpr Tuple<T, u8, u8> days_since_epoch_to_date(T days)
+     return { year, month, day };
+ }
+ 
+-constexpr i64 seconds_since_epoch_to_year(i64 seconds)
++// Not constexpr: the structured binding over the non-literal Tuple returned by
++// days_since_epoch_to_date() means this can never actually be evaluated as a
++// constant expression, which newer Clang tolerates but older Clang (e.g. the
++// v18 shipped with Ubuntu's apt) rejects with -Winvalid-constexpr under -Werror.
++// `inline` is required because constexpr (which implied it) no longer applies and
++// this header is included by many translation units.
++inline i64 seconds_since_epoch_to_year(i64 seconds)
+ {
+     constexpr auto seconds_per_day = 60 * 60 * 24;
+     i64 day_offset_to_epoch = seconds >= 0 ? seconds / seconds_per_day : floor_div(seconds, seconds_per_day);

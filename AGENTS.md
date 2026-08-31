@@ -238,8 +238,14 @@ the pin (apply → build → M2 slice) — that pass caught and fixed two stale 
 0008 (a `StringView` return) and 0009 (a spurious LibDesktop `compile_ipc` that
 collided with the LaunchServer service's generated header; replaced by building the
 LaunchServer service, which emits the IPC headers into a global include dir).
-Caveat: CI still not run (no push); treat M0–M2 as done-locally until first CI pass.
-Next: **M3** — real X11 display + real input. See `docs/PORTING.md`.
+CI note: the first real CI runs (Ubuntu noble, Clang 18) hit a compiler-version
+gap vs local dev (Arch, Clang 22) — two errors in AK (`-Winvalid-constexpr` on an
+unusable `constexpr` in `Time.h`; undefined `__GCC_DESTRUCTIVE_SIZE` from
+`Platform.h`). Resolved by **pinning CI to Clang 22** via apt.llvm.org in
+`.github/workflows/ci.yml` (matches dev at 22.1.8), with patch 0011 kept as
+defense-in-depth for the `constexpr` case. Treat M0–M2 as done-locally until a
+clean CI pass on the pinned toolchain. Next: **M3** — real X11 display + real
+input. See `docs/PORTING.md`.
 
 ## Patch workflow
 
