@@ -7,11 +7,11 @@
 // serenade-launcher: run a Serenity GUI application headlessly on a host
 // system and capture a screenshot of the result.
 //
-// It brings up WindowServer (virtual screen backend) plus optional IPC
-// services and one app over plain Unix domain sockets, optionally replays a
-// scripted input sequence, asks WindowServer for a PNG (SIGUSR1 +
-// WINDOW_SERVER_SCREENSHOT), optionally compares it against a golden image,
-// and tears everything down. No X11 involved yet.
+// It brings up WindowServer (a virtual screen backend by default, or a real
+// X11 display with --x11) plus optional IPC services and one app over plain
+// Unix domain sockets, optionally replays a scripted input sequence, asks
+// WindowServer for a PNG (SIGUSR1 + WINDOW_SERVER_SCREENSHOT), optionally
+// compares it against a golden image, and tears everything down.
 //
 // Usage:
 //   serenade-launcher --res <Base/res> --screenshot <out.png>
@@ -21,6 +21,7 @@
 //                     [--input-root <dir>]
 //                     [--script <file>]
 //                     [--golden <png>] [--tolerance <channel-delta>]
+//                     [--x11]
 //                     <window-server-binary> <app-binary> [app args...]
 //
 // Services are Serenity IPC servers (e.g. Clipboard) that adopt a pre-bound
@@ -80,6 +81,7 @@ struct Options {
     const char* script_path = nullptr;
     const char* golden_path = nullptr;
     int tolerance = 16;
+    bool x11 = false; // render to a real X display (Mode=X11) instead of headless Virtual
     pid_t window_server_pid = -1;
     const char* window_server = nullptr;
     const char* app = nullptr;
@@ -92,7 +94,7 @@ struct Options {
         "Usage: %s --res <Base/res> --screenshot <out.png> [--delay <ms>] [--width <n>] [--height <n>] [--log-dir <dir>]\n"
         "              [--service <socket-path>=<binary>]...\n"
         "              [--input-root <dir>] [--script <file>]\n"
-        "              [--golden <png>] [--tolerance <channel-delta>]\n"
+        "              [--golden <png>] [--tolerance <channel-delta>] [--x11]\n"
         "              <window-server-binary> <app-binary> [app args...]\n",
         program);
     exit(2);
@@ -137,6 +139,8 @@ void parse_args(int argc, char** argv, Options& options)
             options.golden_path = next();
         else if (!strcmp(arg, "--tolerance"))
             options.tolerance = atoi(next());
+        else if (!strcmp(arg, "--x11"))
+            options.x11 = true;
         else if (arg[0] == '-' && arg[1] != '\0')
             usage(argv[0]);
         else
@@ -145,6 +149,8 @@ void parse_args(int argc, char** argv, Options& options)
 
     if (!options.res_root || !options.screenshot_path)
         usage(argv[0]);
+    if (options.x11 && options.input_root)
+        usage(argv[0]); // real X input and synthetic FIFO input are mutually exclusive
     if (i + 2 > argc)
         usage(argv[0]);
     options.window_server = argv[i];
@@ -317,7 +323,7 @@ int reap(pid_t pid)
     return -1;
 }
 
-void write_window_server_config(const char* log_dir, int width, int height)
+void write_window_server_config(const char* log_dir, int width, int height, const char* mode)
 {
     char path[4096];
     snprintf(path, sizeof(path), "%s/serenade-WindowServer.ini", log_dir);
@@ -332,13 +338,13 @@ void write_window_server_config(const char* log_dir, int width, int height)
         "[Screens]\n"
         "MainScreen=0\n"
         "[Screen0]\n"
-        "Mode=Virtual\n"
+        "Mode=%s\n"
         "Left=0\n"
         "Top=0\n"
         "Width=%d\n"
         "Height=%d\n"
         "ScaleFactor=1\n",
-        width, height);
+        mode, width, height);
     fclose(file);
     setenv("WINDOW_SERVER_CONFIG", path, 1);
 }
@@ -731,7 +737,8 @@ int main(int argc, char** argv)
 
     setenv("SERENITY_RES", options.res_root, 1);
     setenv("WINDOW_SERVER_SCREENSHOT", options.screenshot_path, 1);
-    write_window_server_config(options.log_dir, options.width, options.height);
+    write_window_server_config(options.log_dir, options.width, options.height,
+        options.x11 ? "X11" : "Virtual");
 
     // Create the input FIFOs before WindowServer starts: its device scan runs
     // during construction and there is no devicemap watcher on host systems to

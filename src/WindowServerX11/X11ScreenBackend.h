@@ -8,21 +8,40 @@
 
 // X11 implementation of WindowServer's ScreenBackend (M3).
 //
-// Plan:
-//   - One top-level X window (fullscreen by default; embedded window mode
-//     later), depth matched to the Gfx::Bitmap format the compositor uses.
-//   - Backing store via XShm (Xlib + Xext only -- both present on Linux and
-//     all target BSDs); fall back to plain XPutImage if SHM is unavailable.
-//   - open(): create window, map it, report the head mode setting from the
-//     window geometry.
-//   - flush_framebuffer_rects(): for each dirty rect, copy pixels from the
-//     Screen's framebuffer bitmap into the SHM image and XShmPutImage
-//     (DoNotExpose); XFlush once per batch.
-//   - set_head_mode_setting() / resize: XResizeWindow + reallocate backing
-//     store; the compositor re-renders.
+// The compositor paints directly into m_framebuffer, which we point at the shared
+// XShm store (see SerenaDE::X11Context); presenting a frame is then just blitting
+// the dirty rects out of that store with XShmPutImage. Single-buffered
+// (m_can_set_head_buffer = false): the compositor renders to its own back bitmap
+// and copies changed rects into our front buffer before calling us, so we only
+// ever push already-final pixels to X.
 //
-// Hook into WindowServer via a tracked patch that adds a new
-// ScreenLayout::Screen::Mode (e.g. "x11") instantiating this backend in
-// Screen::open_device() -- mirroring the existing Device/Virtual cases.
+// Selected by Screen::open_device() when the screen mode is "X11" (see the
+// tracked patch that adds the mode + this case). The factory below keeps all Xlib
+// usage out of the Serenity tree: WindowServer only calls these two hooks.
 
-class X11ScreenBackend; // defined once LibGfx builds natively (M0)
+#include <WindowServer/ScreenBackend.h>
+
+namespace WindowServer {
+
+class X11ScreenBackend : public ScreenBackend {
+public:
+    ~X11ScreenBackend() override;
+
+    // Hook called from Screen::open_device() for Mode::X11. Returns a backend
+    // whose open() opens $DISPLAY (failing cleanly if it is unset).
+    ErrorOr<void> open() override;
+    void set_head_buffer(int) override;
+    ErrorOr<void> flush_framebuffer_rects(int, ReadonlySpan<FBRect>) override;
+    ErrorOr<void> unmap_framebuffer() override;
+    ErrorOr<void> map_framebuffer() override;
+    ErrorOr<void> flush_framebuffer() override;
+    ErrorOr<void> set_safe_head_mode_setting() override;
+    ErrorOr<void> set_head_mode_setting(GraphicsHeadModeSetting) override;
+    ErrorOr<GraphicsHeadModeSetting> get_head_mode_setting() override;
+
+private:
+    int m_width { 0 };
+    int m_height { 0 };
+};
+
+}

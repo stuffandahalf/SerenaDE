@@ -243,9 +243,15 @@ gap vs local dev (Arch, Clang 22) — two errors in AK (`-Winvalid-constexpr` on
 unusable `constexpr` in `Time.h`; undefined `__GCC_DESTRUCTIVE_SIZE` from
 `Platform.h`). Resolved by **pinning CI to Clang 22** via apt.llvm.org in
 `.github/workflows/ci.yml` (matches dev at 22.1.8), with patch 0011 kept as
-defense-in-depth for the `constexpr` case. Treat M0–M2 as done-locally until a
-clean CI pass on the pinned toolchain. Next: **M3** — real X11 display + real
-input. See `docs/PORTING.md`.
+defense-in-depth for the `constexpr` case. CI is now green on the pinned toolchain,
+so M0–M2 are complete. **M3 is also complete** — a real X11 display
+(`X11ScreenBackend`, dirty-rect `XPutImage` blit with optional zero-copy/`XShm`) and
+real input (a pump thread + self-pipe notifier delivering mouse/keyboard to
+`ScreenInput`) wired into WindowServer via a new `Mode=X11` screen mode (patch 0012;
+third `ScreenBackend`, no compositor changes). All Xlib stays in SerenaDE's
+`src/WindowServerX11`; the Serenity tree only gains a forward-declaring hook header
+(`SerenadeX11.h`) plus the mode plumbing. Verified headless against a 24-bit Xvfb
+(render, cursor motion, button press/drag/release, and typed keys). See `docs/PORTING.md`.
 
 ## Patch workflow
 

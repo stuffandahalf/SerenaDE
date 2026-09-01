@@ -1,0 +1,110 @@
+From fa660c421dd3605df51a49f67fe8b6569c3896e1 Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory@serenade.local>
+Date: Tue, 01 Sep 2026 00:00:00 +0000
+Subject: [PATCH 12/12] WindowServer: Add an X11 screen and input backend mode
+
+Add Screen::Mode::X11 and wire it in Screen::open_device() to a backend
+created by serenade_x11_create_screen_backend(), declared in the new
+SerenadeX11.h. The definition lives in SerenaDE's own X11 library
+(src/WindowServerX11), linked into WindowServer by the build, so the
+Serenity tree itself carries no Xlib dependency.
+
+ScreenLayout learns to parse Mode=X11 from the config. On a host (Lagom)
+build the backend opens $DISPLAY, renders the compositor's framebuffer to
+a fullscreen window, and delivers real mouse/keyboard events to
+ScreenInput; if $DISPLAY is unset it fails cleanly at open().
+
+diff --git a/Userland/Services/WindowServer/Screen.cpp b/Userland/Services/WindowServer/Screen.cpp
+index 0ea1ab7488..aa5e4f9f04 100644
+--- a/Userland/Services/WindowServer/Screen.cpp
++++ b/Userland/Services/WindowServer/Screen.cpp
+@@ -9,6 +9,7 @@
+ #include "Compositor.h"
+ #include "Event.h"
+ #include "ScreenBackend.h"
++#include "SerenadeX11.h"
+ #include "VirtualScreenBackend.h"
+ #include "WindowManager.h"
+ #include <AK/Debug.h>
+@@ -249,6 +250,17 @@ bool Screen::open_device()
+         set_resolution(true);
+         return true;
+     }
++    case ScreenLayout::Screen::Mode::X11: {
++        m_backend = serenade_x11_create_screen_backend();
++        auto return_value = m_backend->open();
++        if (return_value.is_error()) {
++            dbgln("Screen #{}: Failed to open X11 backend: {}", index(), return_value.error());
++            return false;
++        }
++
++        set_resolution(true);
++        return true;
++    }
+     default:
+         dbgln("Unsupported screen type {}", ScreenLayout::Screen::mode_to_string(info.mode));
+         return false;
+diff --git a/Userland/Services/WindowServer/ScreenLayout.h b/Userland/Services/WindowServer/ScreenLayout.h
+index 8d1db50a40..bae7454210 100644
+--- a/Userland/Services/WindowServer/ScreenLayout.h
++++ b/Userland/Services/WindowServer/ScreenLayout.h
+@@ -22,6 +22,7 @@ public:
+             Invalid,
+             Device,
+             Virtual,
++            X11,
+         } mode;
+         Optional<ByteString> device;
+         Gfx::IntPoint location;
+@@ -43,6 +44,7 @@ public:
+                 __ENUMERATE_MODE_ENUM(Invalid)
+                 __ENUMERATE_MODE_ENUM(Device)
+                 __ENUMERATE_MODE_ENUM(Virtual)
++                __ENUMERATE_MODE_ENUM(X11)
+             }
+             VERIFY_NOT_REACHED();
+ 
+diff --git a/Userland/Services/WindowServer/ScreenLayout.ipp b/Userland/Services/WindowServer/ScreenLayout.ipp
+index 97bfc825de..d977bfe275 100644
+--- a/Userland/Services/WindowServer/ScreenLayout.ipp
++++ b/Userland/Services/WindowServer/ScreenLayout.ipp
+@@ -234,6 +234,8 @@ bool ScreenLayout::load_config(Core::ConfigFile const& config_file, ByteString*
+             mode = Screen::Mode::Device;
+         } else if (str_mode == "Virtual") {
+             mode = Screen::Mode::Virtual;
++        } else if (str_mode == "X11") {
++            mode = Screen::Mode::X11;
+         }
+ 
+         if (mode == Screen::Mode::Invalid) {
+diff --git a/Userland/Services/WindowServer/SerenadeX11.h b/Userland/Services/WindowServer/SerenadeX11.h
+new file mode 100644
+index 0000000000..135d4c95a9
+--- /dev/null
++++ b/Userland/Services/WindowServer/SerenadeX11.h
+@@ -0,0 +1,25 @@
++/*
++ * Copyright (c) 2026, Gregory Norton.
++ *
++ * SPDX-License-Identifier: BSD-2-Clause
++ */
++
++#pragma once
++
++// Host-only hooks for the SerenaDE X11 backend library (linked into WindowServer
++// by the build). Declared here so the Serenity tree carries no Xlib dependency;
++// the definitions live in SerenaDE's src/WindowServerX11. Only called on host
++// (Lagom) builds, where that library is always linked.
++
++#include <AK/Forward.h>
++
++namespace WindowServer {
++
++class ScreenBackend;
++
++// Creates the X11 screen backend. Used by Screen::open_device() for Mode::X11.
++// Its open() opens $DISPLAY and fails cleanly if it is unset. ScreenBackend is a
++// plain (non-refcounted) class, so this returns an owning pointer.
++NonnullOwnPtr<ScreenBackend> serenade_x11_create_screen_backend();
++
++}

@@ -7,16 +7,16 @@ Living tracker. Update in the same commit as the work it describes, and keep
 
 | Component                          | Milestone | Status      | Notes |
 | ---------------------------------- | --------- | ----------- | ----- |
-| Serenity pin (FetchSerenity + CI)  | M0        | done        | `7784b1f535` in both places; CI job unrun (no push yet) |
+| Serenity pin (FetchSerenity + CI)  | M0        | done        | `7784b1f535` in both places; CI green on pinned Clang 22 (apt.llvm.org) |
 | Lagom build of LibGUI              | M0        | done        | Patch 0002; full lib links as `liblagom-gui.so` |
 | ctest fully green                  | M0–M2     | done*       | 242/242 serial incl. M1 slice + 4 M2 golden tests; `-j` parallel is flaky (see log) — run serially |
 | Headless vertical slice (1 app → PNG) | M1      | done        | WindowServer + AnalogClock + Clipboard → PNG; ctest `m1-headless-analog-clock-screenshot`; pristine-verified |
 | Synthetic input + golden tests     | M2        | done        | FIFO input root (patch 0008); 4 deterministic goldens across Calculator/About/resize-fixture; pristine-verified |
-| X11 screen backend                 | M3        | not started | XShm dirty-rect flush |
-| X11 input backend                  | M3        | not started | Only real input backend (no evdev, by design) |
+| X11 screen backend                 | M3        | done        | `X11ScreenBackend` renders the compositor's ARGB32 buffer to a fullscreen X window; dirty-rect blit is `XPutImage` (default) with zero-copy/`XShmPutImage` opt-in via `SERENADE_X11_USE_SHM`; patch 0012 wires `Mode=X11`; verified headless vs 24-bit Xvfb |
+| X11 input backend                  | M3        | done        | Real mouse (motion+buttons) and keyboard → `ScreenInput` via a pump thread + self-pipe notifier; two-TU split around the Xlib/Serenity `KeyCode` clash; verified motion moves cursor, button press/drag/release delivered, keys typed |
 | ConfigServer / Clipboard           | M4        | partial     | Both build natively now (Clipboard via patch 0007); launcher runs them as services; no SystemServer yet |
 | SystemServer shim + LaunchServer   | M4        | partial     | LaunchServer builds natively (patch 0009) and runs as a Calculator dependency; SystemServer shim still to do |
-| Launcher + resource env            | M4        | partial     | Headless launcher complete (socket takeover, services, screenshot); X11 session launch still to do |
+| Launcher + resource env            | M4        | partial     | Headless launcher complete (socket takeover, services, screenshot) plus `--x11` mode (writes `Mode=X11`, passes `$DISPLAY` through); SystemServer shim still to do |
 | App subset (Terminal, FileManager, Settings, ImageViewer, PixelPaint) | M4 | not started | |
 | FreeBSD support                    | M5        | not started | X-input path only; no evdev anywhere |
 | NetworkServer / AudioServer shims  | M6        | not started | Unblocks Browser/Mail/games |
@@ -25,6 +25,42 @@ Living tracker. Update in the same commit as the work it describes, and keep
 
 Record discoveries here as they happen (surprising `#ifdef` gaps, API quirks,
 decisions with trade-offs). Newest first.
+
+- 2026-09-01 — **M3 complete: real X11 screen + input backends.** WindowServer now
+  renders to a live `$DISPLAY` and accepts real mouse/keyboard, via a third
+  `ScreenBackend` (`X11ScreenBackend`) selected by a new `Mode=X11` (patch 0012). All
+  Xlib lives in SerenaDE's `src/WindowServerX11`; the Serenity tree only gains a
+  forward-declaring hook header (`SerenadeX11.h`) and the mode plumbing — no Xlib, no
+  compositor changes. Verified headless against a 24-bit Xvfb (desktop + About window
+  match the golden colors; motion moves the cursor; a full press→drag→release is
+  delivered to `ScreenInput` with correct button bits). Findings:
+  - **Xlib's `KeyCode` typedef collides with Serenity's `enum KeyCode`.** No TU may
+    include both, so the input path is two TUs meeting at neutral `RawX11Event` records:
+    `X11Context.cpp` (Xlib only) reads/decodes X events; `X11InputMap.cpp` (Serenity
+    only) maps them to `::KeyEvent`/`MousePacket`. The neutral header must also avoid
+    Xlib `#define`s that shadow identifiers (`ButtonPress`, `KeyPress`, `None` are all
+    macros), so its enumerators use different names.
+  - **The blit path must *deliver* input events, not drop them.** `put_rect()` drains
+    pending X events before each flush (required — unread responses back-pressure the
+    socket during continuous rendering). During a drag the compositor flushes on every
+    frame, so a drain-and-discard silently eats the very button/motion events the pump
+    is meant to handle; motion-only tests pass because they have no concurrent flush.
+    The drain now routes input to the mapper and repaints Expose regions.
+  - **A `Core::Notifier` on the X connection fd does not fire reliably**: Xlib buffers
+    events in userspace, so `XPending>0` does not imply the fd is poll-readable. A pump
+    thread `select()`s the fd (30 ms safety-net timeout) and writes to a self-pipe; a
+    pipe `Notifier` wakes the main loop, which reads + delivers on the main thread
+    (Xlib/ScreenInput are not thread-safe). The pump is created from a `deferred_invoke`
+    because Notifiers made during `open_device()` (before `loop.exec()`) are not serviced.
+  - **Use the screen's default visual/depth, not a deeper one.** This Xvfb is 24-bit
+    only; a 32-bit *visual* exists on it but a 32-bit window renders all-black. We take
+    the zero-copy fast path only when the default is a matching 32-bit TrueColor, else
+    convert ARGB32→native per rect. `XShmPutImage` is broken on this Xvfb (black), so
+    plain `XPutImage` is the default and SHM is opt-in (`SERENADE_X11_USE_SHM=1`).
+  - **Link-order gotcha:** `serenade_x11` is defined under `src/`, which is added after
+    Lagom, but the `WindowServer` target is created *during* Lagom. So WindowServer's own
+    CMakeLists cannot link it (an unknown name is treated as a raw `-l`); the link is done
+    in the top-level `CMakeLists.txt` once both targets exist.
 
  - 2026-08-31 — **CI toolchain mismatch: pinned CI to Clang 22.** The first real CI
    runs (GitHub `ubuntu-latest` = Ubuntu noble) failed in AK for a compiler-*version*

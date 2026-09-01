@@ -51,5 +51,11 @@ add_subdirectory(${SERENITY_SOURCE_DIR}/Meta/Lagom ${CMAKE_BINARY_DIR}/lagom)
 
 add_subdirectory(src)
 
+# Link the X11 backend library into WindowServer. The Mode::X11 screen backend and
+# input hooks that Screen/main call (declared in SerenadeX11.h) are defined in
+# serenade_x11. Done here rather than in WindowServer's own CMakeLists because that
+# target is created during Lagom, before src/ defines serenade_x11.
+target_link_libraries(WindowServer PRIVATE serenade_x11)
+
 enable_testing()
 add_subdirectory(tests)

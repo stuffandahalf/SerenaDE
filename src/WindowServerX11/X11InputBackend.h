@@ -6,34 +6,58 @@
 
 #pragma once
 
-// X11 implementation of InputBackend (M3). The only real input backend; it is
-// uniform across every target OS because libX11 behaves identically on Linux
-// and the BSDs. evdev was considered and rejected: Linux-only, permission
-// model, second maintenance burden. See AGENTS.md, "Architecture decisions".
+// Neutral bridge between the X11 world and the Serenity world for input (M3).
 //
-// Event translation table (X event -> SerenaDE structure):
-//
-//   KeyPress / KeyRelease
-//     -> KeyEvent { key        = keysym_to_keycode(XLookupKeysym result),
-//                   code_point = from XLookupString,
-//                   scancode   = 0 (unused on host),
-//                   flags      = X modifier mask -> Mod_* bits | Is_Press,
-//                   caps_lock_on = from XQueryKeymap }
-//     Key auto-repeat arrives as repeated KeyPress events from the X server;
-//     no extra handling needed.
-//
-//   MotionNotify
-//     -> MousePacket { x, y (window coords), is_relative = false }
-//     Select ExposureMask | PointerMotionMask | ButtonPressMask |
-//     ButtonReleaseMask | EnterWindowMask | LeaveWindowMask.
-//
-//   ButtonPress / ButtonRelease
-//     -> MousePacket button bitmask: X 1/2/3 -> Left/Middle/Right,
-//        X 8/9 -> Backward/Forward.
-//     Wheel: X delivers it as synthetic button 4 (up) / 5 (down) press+release
-//     pairs -> translate to z = +1/-1 with buttons unchanged.
-//
-// Integration: the X Connection fd is registered with Core::EventLoop via a
-// Core::Notifier (Read); start() selects the event mask, stop() deselects.
+// Xlib.h defines a `KeyCode` typedef that collides with Serenity's `enum KeyCode`,
+// so no translation unit may include both. The X event reader lives in
+// X11Context.cpp (Xlib only) and turns raw X events into these neutral records; the
+// mapper (X11InputMap.cpp, Serenity only) turns them into ::KeyEvent / MousePacket
+// and delivers them to WindowServer's ScreenInput via x11_deliver_raw(). This header
+// is includable from both sides because it references neither Xlib nor Serenity types.
 
-class X11InputBackend; // defined once LibGfx builds natively (M0)
+#include <cstddef>
+
+namespace SerenaDE {
+
+// NOTE: enumerator names deliberately avoid Xlib macro names (ButtonPress, KeyPress,
+// ...) which are #defined by Xlib.h and would expand here.
+enum class RawX11Type : unsigned char {
+    Motion,
+    ButtonDown,
+    ButtonUp,
+    KeyDown,
+    KeyUp,
+};
+
+// A key, reduced to what the mapper needs (no Xlib keysym types leak across).
+// NOTE: enumerator names deliberately avoid Xlib macro names (e.g. `None`, defined as
+// 0L in X.h) which would expand here.
+enum class RawKey : unsigned {
+    NoKey,
+    Escape, Tab, Return, Backspace, Insert, Delete, Home, End,
+    Left, Up, Right, Down, PageUp, PageDown,
+    F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12,
+    LeftShift, RightShift, LeftControl, RightControl, LeftAlt, RightAlt, CapsLock,
+    Char, // printable character; see key_char
+};
+
+struct RawX11Event {
+    RawX11Type type {};
+    int x { 0 };
+    int y { 0 };
+    unsigned button { 0 }; // X button number (mouse)
+    RawKey key { RawKey::NoKey }; // keyboard
+    unsigned char state { 0 }; // X modifier state (keyboard)
+    unsigned char key_char { 0 }; // printable char when key == Char
+};
+
+// Deliver one already-translated input event to WindowServer's ScreenInput.
+// Implemented in the Serenity-only mapper (X11InputMap.cpp); no Xlib here. Must run
+// on the WindowServer's main thread.
+void x11_deliver_raw(RawX11Event const& re);
+
+// Tell the mapper the current screen size so it can normalize absolute mouse
+// coordinates into WindowServer's 0..0xffff space. Called once at setup.
+void x11_set_viewport(int width, int height);
+
+}
