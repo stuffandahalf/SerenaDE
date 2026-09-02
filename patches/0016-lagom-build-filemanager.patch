@@ -1,0 +1,28 @@
+From 6911af3b34aec68868089ce58bebc0b2cfa60c01 Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory@serenade.local>
+Date: Wed, 02 Sep 2026 00:00:00 +0000
+Subject: [PATCH 16/18] Lagom: Build FileManager and its Maps library on hosts
+
+Add LibMaps to lagom_standard_libraries (FileManager links it for the map
+widget) and build the FileManager application via add_serenity_subdirectory.
+Its FileOperation worker service is already built by the services component, so
+no further wiring is needed.
+
+diff --git a/Meta/Lagom/CMakeLists.txt b/Meta/Lagom/CMakeLists.txt
+index dbd6423d..6f1f680d 100644
+@@ -491,6 +491,7 @@
+         Keyboard
+         Line
+         Locale
++        Maps
+         Manual
+         Markdown
+         PDF
+@@ -564,6 +565,7 @@
+         add_serenity_subdirectory(Userland/Applications/About)
+         add_serenity_subdirectory(Userland/Applications/AnalogClock)
+         add_serenity_subdirectory(Userland/Applications/Calculator)
++        add_serenity_subdirectory(Userland/Applications/FileManager)
+         add_serenity_subdirectory(Userland/Applications/Terminal)
+ 
+         # Terminal's pty helper is declared as a second target of the Terminal

@@ -81,3 +81,46 @@ serenade_golden_test(m2-calculator-clicks Calculator calculator-clicks.txt calcu
 serenade_golden_test(m2-about About about-idle.txt about.png)
 serenade_golden_test(m2-resize-test-move resize-test-window resize-move.txt resize-test-move.png)
 serenade_golden_test(m2-resize-test-resize resize-test-window resize-resize.txt resize-test-resize.png)
+
+# --- M4 --------------------------------------------------------------------
+# Terminal runs a real shell on a pty and renders its output through LibVT. We
+# drive it with -e (not the keyboard harness) so the content is deterministic:
+# the command echoes a fixed line, then sleeps to hold the window open for the
+# capture. A non-interactive `sh -c` prints no prompt and reads no rc files, so
+# the golden is stable across hosts/shells. ConfigServer (Terminal reads config),
+# LaunchServer (Help action + desktop-launch path) and Clipboard are started as
+# services, exactly as the launcher would for a real session.
+add_test(NAME m4-terminal-echo
+    COMMAND serenade-launcher
+        --res ${SERENITY_SOURCE_DIR}/Base/res
+        --screenshot ${CMAKE_CURRENT_BINARY_DIR}/m4-terminal.png
+        --delay 7000
+        --log-dir ${CMAKE_CURRENT_BINARY_DIR}
+        --service /tmp/session/0/portal/config=$<TARGET_FILE:ConfigServer>
+        --service /tmp/session/0/portal/clipboard=$<TARGET_FILE:Clipboard>
+        --service /tmp/session/0/portal/launch=$<TARGET_FILE:LaunchServer>
+        --golden ${CMAKE_CURRENT_SOURCE_DIR}/golden/terminal-echo.png
+        $<TARGET_FILE:WindowServer>
+        # `&&` (not `;`) keeps the shell alive for the capture without a CMake list
+        # separator; a non-interactive `sh -c` prints no prompt, so output is fixed.
+        $<TARGET_FILE:Terminal> -e "echo SERENADE_M4_OK && sleep 30")
+set_tests_properties(m4-terminal-echo PROPERTIES TIMEOUT 90)
+
+# FileManager opens a controlled Documents directory and renders its listing over
+# the real host filesystem. The driver script (scripts/filemanager-docs.sh) builds
+# that directory with pinned contents and mtimes, then launches FileManager on it;
+# fixed /tmp paths keep the window title deterministic across hosts so the golden
+# is host-independent. ConfigServer, LaunchServer and Clipboard run as services.
+add_test(NAME m4-filemanager-docs
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/filemanager-docs.sh
+        $<TARGET_FILE:serenade-launcher>
+        ${SERENITY_SOURCE_DIR}/Base/res
+        ${CMAKE_CURRENT_BINARY_DIR}/m4-filemanager.png
+        ${CMAKE_CURRENT_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/golden/filemanager-docs.png
+        $<TARGET_FILE:WindowServer>
+        $<TARGET_FILE:FileManager>
+        $<TARGET_FILE:ConfigServer>
+        $<TARGET_FILE:Clipboard>
+        $<TARGET_FILE:LaunchServer>)
+set_tests_properties(m4-filemanager-docs PROPERTIES TIMEOUT 90)

@@ -1,0 +1,33 @@
+From 85a5160d95461a44470d3bcd8a876253fee60a7c Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory@serenade.local>
+Date: Wed, 02 Sep 2026 00:00:00 +0000
+Subject: [PATCH 13/18] Lagom: Build Terminal, its VT library, and utmpupdate on hosts
+
+Add LibVT to lagom_standard_libraries so the terminal's virtual-terminal
+widget compiles on host systems, build the Terminal application via
+add_serenity_subdirectory, and declare its pty helper `utmpupdate` as a
+lagom_utility (the Terminal component lists it as a second target, so the
+host build fails unless that target exists).
+
+diff --git a/Meta/Lagom/CMakeLists.txt b/Meta/Lagom/CMakeLists.txt
+index af38298b..dbd6423d 100644
+@@ -508,6 +508,7 @@
+         TLS
+         Unicode
+         URL
++        VT
+         Wasm
+         WebSocket
+         XML
+@@ -563,6 +564,11 @@
+         add_serenity_subdirectory(Userland/Applications/About)
+         add_serenity_subdirectory(Userland/Applications/AnalogClock)
+         add_serenity_subdirectory(Userland/Applications/Calculator)
++        add_serenity_subdirectory(Userland/Applications/Terminal)
++
++        # Terminal's pty helper is declared as a second target of the Terminal
++        # component; build it here so that target exists for the host build.
++        lagom_utility(utmpupdate SOURCES ../../Userland/Utilities/utmpupdate.cpp LIBS LibCore LibMain)
+ 
+         # Lagom Utilities
+         lagom_utility(abench SOURCES ../../Userland/Utilities/abench.cpp LIBS LibMain LibFileSystem LibAudio)

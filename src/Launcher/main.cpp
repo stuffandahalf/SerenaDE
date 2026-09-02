@@ -79,6 +79,7 @@ struct Options {
     int service_count = 0;
     const char* input_root = nullptr;
     const char* script_path = nullptr;
+    const char* home = nullptr; // set $HOME for all spawned children (real-session fidelity)
     const char* golden_path = nullptr;
     int tolerance = 16;
     bool x11 = false; // render to a real X display (Mode=X11) instead of headless Virtual
@@ -93,7 +94,7 @@ struct Options {
     fprintf(stderr,
         "Usage: %s --res <Base/res> --screenshot <out.png> [--delay <ms>] [--width <n>] [--height <n>] [--log-dir <dir>]\n"
         "              [--service <socket-path>=<binary>]...\n"
-        "              [--input-root <dir>] [--script <file>]\n"
+        "              [--input-root <dir>] [--script <file>] [--home <dir>]\n"
         "              [--golden <png>] [--tolerance <channel-delta>] [--x11]\n"
         "              <window-server-binary> <app-binary> [app args...]\n",
         program);
@@ -135,6 +136,8 @@ void parse_args(int argc, char** argv, Options& options)
             options.input_root = next();
         else if (!strcmp(arg, "--script"))
             options.script_path = next();
+        else if (!strcmp(arg, "--home"))
+            options.home = next();
         else if (!strcmp(arg, "--golden"))
             options.golden_path = next();
         else if (!strcmp(arg, "--tolerance"))
@@ -737,6 +740,8 @@ int main(int argc, char** argv)
 
     setenv("SERENITY_RES", options.res_root, 1);
     setenv("WINDOW_SERVER_SCREENSHOT", options.screenshot_path, 1);
+    if (options.home)
+        setenv("HOME", options.home, 1); // apps read $HOME for config and default paths
     write_window_server_config(options.log_dir, options.width, options.height,
         options.x11 ? "X11" : "Virtual");
 

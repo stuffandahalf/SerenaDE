@@ -251,7 +251,13 @@ real input (a pump thread + self-pipe notifier delivering mouse/keyboard to
 third `ScreenBackend`, no compositor changes). All Xlib stays in SerenaDE's
 `src/WindowServerX11`; the Serenity tree only gains a forward-declaring hook header
 (`SerenadeX11.h`) plus the mode plumbing. Verified headless against a 24-bit Xvfb
-(render, cursor motion, button press/drag/release, and typed keys). See `docs/PORTING.md`.
+(render, cursor motion, button press/drag/release, and typed keys). **M4 is in
+progress:** Terminal and FileManager now build via Lagom and render real content
+headlessly (patches 0013–0018), each behind a deterministic golden test
+(`m4-terminal-echo`, `m4-filemanager-docs`); the launcher gained `--home <dir>`.
+Full serial ctest is **244/244**. Still to do for M4: copy/paste between two apps
+and launch-from-desktop (both need new infra — the launcher spawns one app, and the
+Taskbar/desktop isn't built yet). See `docs/PORTING.md`.
 
 ## Patch workflow
 

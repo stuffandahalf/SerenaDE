@@ -1,0 +1,59 @@
+From beb860694e8598ec125ee7cac148a1856e98fa69 Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory@serenade.local>
+Date: Wed, 02 Sep 2026 00:00:00 +0000
+Subject: [PATCH 15/18] Terminal: Tolerate hosts without utmp and procfs children
+
+Make three Serenity-specific assumptions non-fatal so the terminal runs on
+host systems: (1) /bin/utmpupdate may be absent, so log and continue instead
+of propagating the spawn error; (2) initialize the sigaction sa_mask with
+sigemptyset() rather than `= 0`, which only compiles where sigset_t is an
+integer type; (3) /proc/<pid>/children does not exist on hosts, so ignore the
+lookup failure in the background-process heuristic instead of aborting.
+
+diff --git a/Userland/Applications/Terminal/main.cpp b/Userland/Applications/Terminal/main.cpp
+index 90cfa9f9..57f487f9 100644
+@@ -113,7 +113,14 @@
+         tty,
+     };
+ 
+-    auto utmpupdate_pid = TRY(Core::Process::spawn("/bin/utmpupdate"sv, utmp_update_command, {}, Core::Process::KeepAsChild::Yes));
++    auto spawn_result = Core::Process::spawn("/bin/utmpupdate"sv, utmp_update_command, {}, Core::Process::KeepAsChild::Yes);
++    if (spawn_result.is_error()) {
++        // /bin/utmpupdate maintains Serenity's utmp bookkeeping; its absence (e.g.
++        // on host systems) is not fatal to the terminal.
++        dbgln("Terminal: utmpupdate unavailable: {}", spawn_result.error());
++        return {};
++    }
++    auto utmpupdate_pid = spawn_result.release_value();
+ 
+     Core::System::WaitPidResult status;
+     auto wait_successful = false;
+@@ -228,8 +235,10 @@
+ {
+     TRY(Core::System::pledge("stdio tty rpath cpath wpath recvfd sendfd proc exec unix sigaction"));
+ 
+-    struct sigaction act;
+-    act.sa_mask = 0;
++    struct sigaction act {};
++    // sigemptyset() is portable; `sa_mask = 0` only compiles where sigset_t is an
++    // integer type (Serenity's LibC), not on glibc where it is a struct.
++    sigemptyset(&act.sa_mask);
+     // Do not trust that both function pointers overlap.
+     act.sa_sigaction = nullptr;
+ 
+@@ -345,10 +354,13 @@
+ 
+     auto shell_child_process_count = [&] {
+         int background_process_count = 0;
+-        Core::Directory::for_each_entry(String::formatted("/proc/{}/children", shell_pid).release_value_but_fixme_should_propagate_errors(), Core::DirIterator::Flags::SkipParentAndBaseDir, [&](auto&, auto&) {
++        // /proc/<pid>/children is Serenity-specific procfs and does not exist on
++        // hosts; ignore the lookup failure there (report no background processes)
++        // instead of aborting, so the close-confirmation heuristic degrades cleanly.
++        (void)Core::Directory::for_each_entry(String::formatted("/proc/{}/children", shell_pid).release_value_but_fixme_should_propagate_errors(), Core::DirIterator::Flags::SkipParentAndBaseDir, [&](auto&, auto&) {
+             ++background_process_count;
+             return IterationDecision::Continue;
+-        }).release_value_but_fixme_should_propagate_errors();
++        });
+         return background_process_count;
+     };
+ 

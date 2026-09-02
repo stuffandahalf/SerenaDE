@@ -1,0 +1,24 @@
+From 0e28533942f1c8b47a0c5e15168d0c8bb238fad7 Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory@serenade.local>
+Date: Wed, 02 Sep 2026 00:00:00 +0000
+Subject: [PATCH 14/18] LibVT: Guard Core::System::beep() to Serenity only
+
+Core::System::beep() has no argument-less overload on host systems (it is a
+Serenity LibC facility). Wrap the audible-beep call in AK_OS_SERENITY so
+TerminalWidget compiles under Lagom; on hosts the audible path is a no-op
+(audio arrives in a later milestone) and the visual-below path is unchanged.
+
+diff --git a/Userland/Libraries/LibVT/TerminalWidget.cpp b/Userland/Libraries/LibVT/TerminalWidget.cpp
+index 12ab0cb0..518101be 100644
+@@ -1110,7 +1110,11 @@
+         return;
+     }
+     if (m_bell_mode == BellMode::AudibleBeep) {
++#ifdef AK_OS_SERENITY
+         [[maybe_unused]] auto ret_val = Core::System::beep();
++#endif
++        // Hosts have no system beep yet (audio lands in a later milestone); the
++        // visual-below path is skipped for audible mode, so this is a no-op there.
+         return;
+     }
+     m_visual_beep_timer->restart(200);

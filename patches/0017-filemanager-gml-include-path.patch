@@ -1,0 +1,22 @@
+From 63427f5783341f60e1ce9b2522b7b61b26577351 Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory@serenade.local>
+Date: Wed, 02 Sep 2026 00:00:00 +0000
+Subject: [PATCH 17/18] FileManager: Expose the binary Userland include for GML headers
+
+stringify_gml() emits the *GML.h headers into the target binary dir, but the
+sources include them as <Applications/FileManager/...>. On host (Lagom) builds
+that root is not on the include path (unlike library GML includes such as
+<LibGUI/...>), so add the binary Userland root -- two levels up from this
+target -- to FileManager.
+
+diff --git a/Userland/Applications/FileManager/CMakeLists.txt b/Userland/Applications/FileManager/CMakeLists.txt
+index ce1c337c..d4f4e7fd 100644
+@@ -36,3 +36,8 @@
+ 
+ serenity_app(FileManager ICON app-file-manager)
+ target_link_libraries(FileManager PRIVATE LibArchive LibAudio LibConfig LibCore LibDesktop LibFileSystem LibGfx LibGUI LibMain LibMaps LibPDF LibThreading LibURL)
++
++# stringify_gml() emits the *GML.h headers into this target's binary dir; the
++# sources include them as <Applications/FileManager/...>, so expose the binary
++# Userland root (two levels up from here) as an include path.
++target_include_directories(FileManager PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/../..)

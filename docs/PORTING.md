@@ -16,8 +16,8 @@ Living tracker. Update in the same commit as the work it describes, and keep
 | X11 input backend                  | M3        | done        | Real mouse (motion+buttons) and keyboard → `ScreenInput` via a pump thread + self-pipe notifier; two-TU split around the Xlib/Serenity `KeyCode` clash; verified motion moves cursor, button press/drag/release delivered, keys typed |
 | ConfigServer / Clipboard           | M4        | partial     | Both build natively now (Clipboard via patch 0007); launcher runs them as services; no SystemServer yet |
 | SystemServer shim + LaunchServer   | M4        | partial     | LaunchServer builds natively (patch 0009) and runs as a Calculator dependency; SystemServer shim still to do |
-| Launcher + resource env            | M4        | partial     | Headless launcher complete (socket takeover, services, screenshot) plus `--x11` mode (writes `Mode=X11`, passes `$DISPLAY` through); SystemServer shim still to do |
-| App subset (Terminal, FileManager, Settings, ImageViewer, PixelPaint) | M4 | not started | |
+| Launcher + resource env            | M4        | partial     | Headless launcher complete (socket takeover, services, screenshot) plus `--x11` mode (writes `Mode=X11`, passes `$DISPLAY` through) and `--home <dir>` (sets `$HOME` for spawned apps); SystemServer shim still to do |
+| App subset (Terminal, FileManager, Settings, ImageViewer, PixelPaint) | M4 | partial | Terminal + FileManager build & render on host (patches 0013–0018), each with a deterministic golden test; copy/paste between apps + launch-from-desktop not done; Settings/ImageViewer/PixelPaint not started |
 | FreeBSD support                    | M5        | not started | X-input path only; no evdev anywhere |
 | NetworkServer / AudioServer shims  | M6        | not started | Unblocks Browser/Mail/games |
 
@@ -25,6 +25,38 @@ Living tracker. Update in the same commit as the work it describes, and keep
 
 Record discoveries here as they happen (surprising `#ifdef` gaps, API quirks,
 decisions with trade-offs). Newest first.
+
+- 2026-09-02 — **M4 checkpoint: Terminal + FileManager run natively on host.** Two
+  flagship apps now build via Lagom and render real content headlessly, each behind a
+  deterministic golden test (`m4-terminal-echo`, `m4-filemanager-docs`); full serial
+  ctest 244/244. Patches 0013–0018; the launcher gains `--home <dir>` (sets `$HOME` for
+  spawned apps, needed by FileManager/config reads). Findings:
+  - **FileManager's heavy dep chain was already built.** It links LibArchive/Audio/
+    Config/PDF/Threading/FileSystem/Maps — all but **LibMaps** were already in
+    `lagom_standard_libraries`, and its `FileOperation` worker service is built by the
+    services component. So wiring it in = add `Maps` + one `add_serenity_subdirectory`.
+  - **Only three host fixes, all small.** (1) `#include <serenity.h>` → guard with
+    `AK_OS_SERENITY` (the other POSIX includes cover everything on host). (2) two
+    `disown(child)` calls (Serenity-only LibC that detaches a spawned child) → guard.
+    (3) **GML include path**: `stringify_gml()` emits `*GML.h` into the target's binary
+    dir, and FileManager includes them as `<Applications/FileManager/...>` — that root is
+    not on the host include path (unlike a *library*'s GML, e.g. `<LibGUI/...>`, which
+    resolves via `.../Userland/Libraries`). Add `${CMAKE_CURRENT_BINARY_DIR}/../..` to
+    the target. No other app uses GML yet, so this was the first hit.
+  - **The golden compare is not strict-zero.** `compare_golden` passes when ≤0.1% of
+    pixels exceed the per-channel tolerance (default 16) — so FileManager's ~40px of
+    anti-aliasing drift between runs passes with ~20× headroom, while a truly broken
+    render (thousands of px) still fails. Deterministic content (Calculator/About/Terminal)
+    lands at AE=0; complex renders get the sliver.
+  - **Terminal's ctest "failure" was a stale diagnostic artifact, not a bug.** A leftover
+    `/tmp/envwrap.sh` wrapper in the test command (from earlier env-bisection) had been
+    deleted out from under it; with a clean `serenade-launcher` invocation and a 7s delay
+    the Terminal golden is byte-stable (AE=0). Lesson: keep test commands self-contained —
+    no `/tmp` scratch wrappers referenced from CMake.
+  - **Remaining M4 exit criteria need new infra:** copy/paste between two apps (the
+    launcher spawns exactly one app; a cross-app clipboard test needs multi-app or a
+    LaunchServer-driven second app + deterministic copy/paste scripting) and
+    launch-from-desktop (needs the Taskbar/desktop, not yet built).
 
 - 2026-09-01 — **M3 complete: real X11 screen + input backends.** WindowServer now
   renders to a live `$DISPLAY` and accepts real mouse/keyboard, via a third
