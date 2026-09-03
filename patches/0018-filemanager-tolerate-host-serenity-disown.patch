@@ -1,4 +1,4 @@
-From 10d00f1a97547b8c1bf155aa30d8b93184c82382 Mon Sep 17 00:00:00 2001
+From beb860694e8598ec125ee7cac148a1856e98fa69 Mon Sep 17 00:00:00 2001
 From: Gregory Norton <gregory@serenade.local>
 Date: Wed, 02 Sep 2026 00:00:00 +0000
 Subject: [PATCH 18/18] FileManager: Tolerate hosts without serenity.h and disown()
@@ -9,9 +9,14 @@ used to detach spawned children. Guard both with AK_OS_SERENITY so the app
 compiles and runs under Lagom; on hosts the spawned child is simply left to be
 reaped normally.
 
+Also route posix_spawn_file_actions_addchdir through a small macro: that name is
+a GNU extension only present on newer glibc (~>= 2.40), while the portable
+standard name ..._np (POSIX, glibc >= 2.24) is what older host glibc such as
+Ubuntu noble ship. Serenity keeps the original name.
+
 diff --git a/Userland/Applications/FileManager/DirectoryView.cpp b/Userland/Applications/FileManager/DirectoryView.cpp
-index 6f6bf08b..0277e783 100644
-@@ -22,7 +22,9 @@
+index 6f6bf08b..bc6501ab 100644
+@@ -22,11 +22,22 @@
  #include <LibGUI/ModelEditingDelegate.h>
  #include <LibGUI/Process.h>
  #include <LibGUI/SortingProxyModel.h>
@@ -21,7 +26,29 @@ index 6f6bf08b..0277e783 100644
  #include <spawn.h>
  #include <stdio.h>
  #include <unistd.h>
-@@ -519,19 +521,23 @@
+ 
++// posix_spawn_file_actions_addchdir is a GNU extension that only exists on newer
++// glibc (~>= 2.40); the portable standard name (POSIX, glibc >= 2.24) is ..._np.
++// Serenity's LibC uses the former; host systems use the latter.
++#if defined(AK_OS_SERENITY)
++#    define SERENADE_SPAWN_ADDCHDIR posix_spawn_file_actions_addchdir
++#else
++#    define SERENADE_SPAWN_ADDCHDIR posix_spawn_file_actions_addchdir_np
++#endif
++
+ namespace FileManager {
+ 
+ void spawn_terminal(GUI::Window* window, StringView directory)
+@@ -508,7 +519,7 @@
+     if (launcher_handler.details().launcher_type == Desktop::Launcher::LauncherType::Application) {
+         posix_spawn_file_actions_t spawn_actions;
+         posix_spawn_file_actions_init(&spawn_actions);
+-        posix_spawn_file_actions_addchdir(&spawn_actions, path().characters());
++        SERENADE_SPAWN_ADDCHDIR(&spawn_actions, path().characters());
+ 
+         Vector<char const*, 2> argv;
+         argv.append(launcher_handler.details().name.characters());
+@@ -519,19 +530,23 @@
          argv.append(nullptr);
  
          errno = posix_spawn(&child, launcher_handler.details().executable.characters(), &spawn_actions, &spawn_attributes, const_cast<char**>(argv.data()), environ);
