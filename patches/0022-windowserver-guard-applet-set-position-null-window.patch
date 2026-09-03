@@ -1,0 +1,23 @@
+From bce80a8a87679d795b3be13137c0dde5339dbc83 Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory@serenade.local>
+Date: Thu, 03 Sep 2026 00:00:00 +0000
+Subject: [PATCH 22/22] WindowServer: Guard AppletManager::set_position against a null window
+
+AppletManager::m_window is created lazily only when applets are added, so it is
+null in a session with no applets. The WM-connection destructor calls
+set_position({}) unconditionally on every window-manager client disconnect (the
+Taskbar is such a client), which dereferenced the null m_window and crashed the
+whole WindowServer -- taking down any in-flight screenshot. Guard it like repaint()
+already does; with no applet area there is nothing to reposition, so it is a no-op.
+
+diff --git a/Userland/Services/WindowServer/AppletManager.cpp b/Userland/Services/WindowServer/AppletManager.cpp
+index 1fb0147a..d84f1e6a 100644
+@@ -32,6 +32,8 @@
+ 
+ void AppletManager::set_position(Gfx::IntPoint position)
+ {
++    if (!m_window)
++        return; // No applet area yet (no applets added); nothing to reposition.
+     m_window->move_to(position);
+     m_window->set_visible(true);
+ }

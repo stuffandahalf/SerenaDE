@@ -27,6 +27,19 @@ Living tracker. Update in the same commit as the work it describes, and keep
 Record discoveries here as they happen (surprising `#ifdef` gaps, API quirks,
 decisions with trade-offs). Newest first.
 
+ - 2026-09-03 — **WindowServer crash on WM-client disconnect (patch 0022).** CI failed
+   `m4-taskbar-launch` with "no screenshot produced" while it passed locally 6/6 — a
+   timing-dependent latent WindowServer bug. The Taskbar is a *window-manager* client
+   (`make_window_manager`), and `WMConnectionFromClient`'s destructor calls
+   `AppletManager::set_position({})` unconditionally on disconnect. But
+   `AppletManager::m_window` is created lazily only when applets are added, so with no
+   applets it is null → `set_position` dereferenced it and crashed the whole WindowServer.
+   Locally the crash landed *after* the screenshot was written (test still passed); on the
+   slower CI runner it landed *before*, so the SIGUSR1 found a dead WS and no PNG appeared.
+   Fix: guard `set_position` against a null `m_window`, exactly like `repaint()` already does
+   — with no applet area there is nothing to reposition, so it's a no-op. Diagnosed by
+   symbolizing the `VERIFICATION FAILED: m_ptr (RefPtr.h)` backtrace with `addr2line`.
+
  - 2026-09-03 — **M4: the real Taskbar/desktop UI builds and launches apps on host.** The
    Serenity Taskbar (dock + system menu) now compiles under Lagom and a scripted click on
    its Terminal quick-launch icon opens a real Terminal window through the Taskbar's own
