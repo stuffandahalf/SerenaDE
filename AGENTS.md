@@ -252,12 +252,13 @@ third `ScreenBackend`, no compositor changes). All Xlib stays in SerenaDE's
 `src/WindowServerX11`; the Serenity tree only gains a forward-declaring hook header
 (`SerenadeX11.h`) plus the mode plumbing. Verified headless against a 24-bit Xvfb
 (render, cursor motion, button press/drag/release, and typed keys). **M4 is in
-progress:** Terminal and FileManager now build via Lagom and render real content
-headlessly (patches 0013–0018), each behind a deterministic golden test
-(`m4-terminal-echo`, `m4-filemanager-docs`); the launcher gained `--home <dir>`.
-Full serial ctest is **244/244**. Still to do for M4: copy/paste between two apps
-and launch-from-desktop (both need new infra — the launcher spawns one app, and the
-Taskbar/desktop isn't built yet). See `docs/PORTING.md`.
+ progress:** Terminal and FileManager now build via Lagom and render real content
+ headlessly (patches 0013–0018), each behind a deterministic golden test
+ (`m4-terminal-echo`, `m4-filemanager-docs`); the launcher gained `--home <dir>` and
+ `--co-app <binary>` (a second app on the same WindowServer). Cross-app copy/paste is
+ proven by two fixture processes over the real Clipboard service
+ (`m4-clipboard-cross-app`). Full serial ctest is **245/245**. Still to do for M4:
+ launch-from-desktop (needs the Taskbar/desktop UI, not yet built). See `docs/PORTING.md`.
 
 ## Patch workflow
 

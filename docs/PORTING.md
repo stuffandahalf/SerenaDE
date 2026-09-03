@@ -17,7 +17,7 @@ Living tracker. Update in the same commit as the work it describes, and keep
 | ConfigServer / Clipboard           | M4        | partial     | Both build natively now (Clipboard via patch 0007); launcher runs them as services; no SystemServer yet |
 | SystemServer shim + LaunchServer   | M4        | partial     | LaunchServer builds natively (patch 0009) and runs as a Calculator dependency; SystemServer shim still to do |
 | Launcher + resource env            | M4        | partial     | Headless launcher complete (socket takeover, services, screenshot) plus `--x11` mode (writes `Mode=X11`, passes `$DISPLAY` through) and `--home <dir>` (sets `$HOME` for spawned apps); SystemServer shim still to do |
-| App subset (Terminal, FileManager, Settings, ImageViewer, PixelPaint) | M4 | partial | Terminal + FileManager build & render on host (patches 0013–0018), each with a deterministic golden test; copy/paste between apps + launch-from-desktop not done; Settings/ImageViewer/PixelPaint not started |
+| App subset (Terminal, FileManager, Settings, ImageViewer, PixelPaint) | M4 | partial | Terminal + FileManager build & render on host (patches 0013–0018) with golden tests; cross-app copy/paste proven via clip-copy/clip-paste fixtures + launcher `--co-app` (`m4-clipboard-cross-app`); launch-from-desktop not done (needs Taskbar); Settings/ImageViewer/PixelPaint not started |
 | FreeBSD support                    | M5        | not started | X-input path only; no evdev anywhere |
 | NetworkServer / AudioServer shims  | M6        | not started | Unblocks Browser/Mail/games |
 
@@ -53,10 +53,17 @@ decisions with trade-offs). Newest first.
     deleted out from under it; with a clean `serenade-launcher` invocation and a 7s delay
     the Terminal golden is byte-stable (AE=0). Lesson: keep test commands self-contained —
     no `/tmp` scratch wrappers referenced from CMake.
-  - **Remaining M4 exit criteria need new infra:** copy/paste between two apps (the
-    launcher spawns exactly one app; a cross-app clipboard test needs multi-app or a
-    LaunchServer-driven second app + deterministic copy/paste scripting) and
-    launch-from-desktop (needs the Taskbar/desktop, not yet built).
+  - **Cross-app copy/paste is proven with two fixture processes + `--co-app`.** The
+    launcher gained `--co-app <binary>` (+`--co-app-delay <ms>`): it spawns a second app
+    against the *same* WindowServer after letting the primary act first. Two tiny SerenaDE
+    fixtures (`src/TestApps/clip_copy.cpp`, `clip_paste.cpp`) do the round-trip over the
+    real Clipboard IPC service — clip-copy publishes "SERENADE_CLIP_OK", clip-paste fetches
+    and renders it. No Serenity patch is involved (both live in this repo). The golden is
+    byte-stable (AE=0); a negative control (paster alone → "(empty)") differs in the label
+    region, confirming the text genuinely crossed processes. `m4-clipboard-cross-app`.
+  - **Remaining M4 exit criterion:** launch Terminal from the desktop — needs the
+    Taskbar/desktop UI (a Serenity service/app not yet built) plus a scripted menu click;
+    LaunchServer itself already builds and runs as a service.
 
 - 2026-09-01 — **M3 complete: real X11 screen + input backends.** WindowServer now
   renders to a live `$DISPLAY` and accepts real mouse/keyboard, via a third

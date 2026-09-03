@@ -124,3 +124,23 @@ add_test(NAME m4-filemanager-docs
         $<TARGET_FILE:Clipboard>
         $<TARGET_FILE:LaunchServer>)
 set_tests_properties(m4-filemanager-docs PROPERTIES TIMEOUT 90)
+
+# Cross-app copy/paste (M4 exit criterion). clip-copy (the primary app) publishes a
+# fixed string to the Clipboard IPC service; after --co-app-delay the launcher brings
+# up clip-paste as a second process against the same WindowServer, which fetches and
+# renders that string. If the round-trip works the paster shows "SERENADE_CLIP_OK";
+# if not, "(empty)" -- so the golden is only stable when cross-app clipboard works.
+# Both fixtures live in this repo (src/TestApps), so no Serenity patch is involved.
+add_test(NAME m4-clipboard-cross-app
+    COMMAND serenade-launcher
+        --res ${SERENITY_SOURCE_DIR}/Base/res
+        --screenshot ${CMAKE_CURRENT_BINARY_DIR}/m4-clipboard.png
+        --delay 4000
+        --log-dir ${CMAKE_CURRENT_BINARY_DIR}
+        --service /tmp/session/0/portal/clipboard=$<TARGET_FILE:Clipboard>
+        --co-app $<TARGET_FILE:clip-paste>
+        --co-app-delay 2500
+        --golden ${CMAKE_CURRENT_SOURCE_DIR}/golden/clipboard-cross-app.png
+        $<TARGET_FILE:WindowServer>
+        $<TARGET_FILE:clip-copy>)
+set_tests_properties(m4-clipboard-cross-app PROPERTIES TIMEOUT 90)

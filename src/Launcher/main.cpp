@@ -80,6 +80,8 @@ struct Options {
     const char* input_root = nullptr;
     const char* script_path = nullptr;
     const char* home = nullptr; // set $HOME for all spawned children (real-session fidelity)
+    const char* co_app = nullptr; // optional second app, run alongside the primary (same WindowServer)
+    int co_app_delay_ms = 2000; // settle time after the primary before spawning the co-app
     const char* golden_path = nullptr;
     int tolerance = 16;
     bool x11 = false; // render to a real X display (Mode=X11) instead of headless Virtual
@@ -95,6 +97,7 @@ struct Options {
         "Usage: %s --res <Base/res> --screenshot <out.png> [--delay <ms>] [--width <n>] [--height <n>] [--log-dir <dir>]\n"
         "              [--service <socket-path>=<binary>]...\n"
         "              [--input-root <dir>] [--script <file>] [--home <dir>]\n"
+        "              [--co-app <binary>] [--co-app-delay <ms>]\n"
         "              [--golden <png>] [--tolerance <channel-delta>] [--x11]\n"
         "              <window-server-binary> <app-binary> [app args...]\n",
         program);
@@ -138,6 +141,10 @@ void parse_args(int argc, char** argv, Options& options)
             options.script_path = next();
         else if (!strcmp(arg, "--home"))
             options.home = next();
+        else if (!strcmp(arg, "--co-app"))
+            options.co_app = next();
+        else if (!strcmp(arg, "--co-app-delay"))
+            options.co_app_delay_ms = atoi(next());
         else if (!strcmp(arg, "--golden"))
             options.golden_path = next();
         else if (!strcmp(arg, "--tolerance"))
@@ -705,6 +712,7 @@ void cleanup(Options& options, pid_t window_server_pid)
 
 pid_t s_window_server_pid = -1;
 pid_t s_app_pid = -1;
+pid_t s_co_app_pid = -1;
 Options* s_options = nullptr;
 
 void on_signal(int)
@@ -713,6 +721,8 @@ void on_signal(int)
     // running, then exit. (kill/_exit are async-signal-safe.)
     if (s_app_pid > 0)
         kill(s_app_pid, SIGKILL);
+    if (s_co_app_pid > 0)
+        kill(s_co_app_pid, SIGKILL);
     if (s_window_server_pid > 0)
         kill(s_window_server_pid, SIGKILL);
     if (s_options) {
@@ -809,6 +819,17 @@ int main(int argc, char** argv)
         replay_script(options.script_path, input);
     }
 
+    pid_t co_app_pid = -1;
+    if (options.co_app) {
+        // Let the primary act first (e.g. publish text to the clipboard), then bring
+        // up a second app against the same WindowServer for cross-app tests.
+        sleep_ms(options.co_app_delay_ms);
+        int co_log = open_log_file(options.log_dir, "serenade-co-app.log");
+        char const* const co_argv[] { options.co_app, nullptr };
+        co_app_pid = spawn_plain(options.co_app, co_argv, co_log);
+        s_co_app_pid = co_app_pid;
+    }
+
     sleep_ms(options.delay_ms);
 
     kill(options.window_server_pid, SIGUSR1);
@@ -817,6 +838,10 @@ int main(int argc, char** argv)
     if (app_pid > 0) {
         kill(app_pid, SIGTERM);
         reap(app_pid);
+    }
+    if (co_app_pid > 0) {
+        kill(co_app_pid, SIGTERM);
+        reap(co_app_pid);
     }
     cleanup(options, options.window_server_pid);
 
