@@ -251,14 +251,17 @@ real input (a pump thread + self-pipe notifier delivering mouse/keyboard to
 third `ScreenBackend`, no compositor changes). All Xlib stays in SerenaDE's
 `src/WindowServerX11`; the Serenity tree only gains a forward-declaring hook header
 (`SerenadeX11.h`) plus the mode plumbing. Verified headless against a 24-bit Xvfb
-(render, cursor motion, button press/drag/release, and typed keys). **M4 is in
- progress:** Terminal and FileManager now build via Lagom and render real content
- headlessly (patches 0013–0018), each behind a deterministic golden test
- (`m4-terminal-echo`, `m4-filemanager-docs`); the launcher gained `--home <dir>` and
- `--co-app <binary>` (a second app on the same WindowServer). Cross-app copy/paste is
- proven by two fixture processes over the real Clipboard service
- (`m4-clipboard-cross-app`). Full serial ctest is **245/245**. Still to do for M4:
- launch-from-desktop (needs the Taskbar/desktop UI, not yet built). See `docs/PORTING.md`.
+ (render, cursor motion, button press/drag/release, and typed keys). **M4 exit criteria
+  are met:** Terminal and FileManager build via Lagom and render real content headlessly
+  (patches 0013–0018), each behind a deterministic golden test (`m4-terminal-echo`,
+  `m4-filemanager-docs`); cross-app copy/paste is proven by two fixture processes over the
+  real Clipboard service (`m4-clipboard-cross-app`); and launch-from-desktop is proven
+  functionally via a `launch-terminal` fixture that asks LaunchServer to spawn Terminal
+  (the desktop menu's own IPC path), asserted with the launcher's new `--expect-window`
+  check since an interactive terminal can't be goldened (`m4-launch-terminal`). The
+  launcher also gained `--home <dir>` and `--co-app <binary>`. Full serial ctest is
+  **246/246**. Remaining M4 task items (not exit criteria): the literal Taskbar/desktop UI,
+  and Settings/ImageViewer/PixelPaint. See `docs/PORTING.md`.
 
 ## Patch workflow
 

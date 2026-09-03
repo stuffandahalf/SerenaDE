@@ -84,6 +84,7 @@ struct Options {
     int co_app_delay_ms = 2000; // settle time after the primary before spawning the co-app
     const char* golden_path = nullptr;
     int tolerance = 16;
+    double expect_window_min = -1.0; // if >= 0, assert a window appeared (non-bg fraction >= this) instead of a golden match
     bool x11 = false; // render to a real X display (Mode=X11) instead of headless Virtual
     pid_t window_server_pid = -1;
     const char* window_server = nullptr;
@@ -98,7 +99,8 @@ struct Options {
         "              [--service <socket-path>=<binary>]...\n"
         "              [--input-root <dir>] [--script <file>] [--home <dir>]\n"
         "              [--co-app <binary>] [--co-app-delay <ms>]\n"
-        "              [--golden <png>] [--tolerance <channel-delta>] [--x11]\n"
+        "              [--golden <png>] [--tolerance <channel-delta>] [--expect-window <min-fraction>]\n"
+        "              [--x11]\n"
         "              <window-server-binary> <app-binary> [app args...]\n",
         program);
     exit(2);
@@ -149,6 +151,8 @@ void parse_args(int argc, char** argv, Options& options)
             options.golden_path = next();
         else if (!strcmp(arg, "--tolerance"))
             options.tolerance = atoi(next());
+        else if (!strcmp(arg, "--expect-window"))
+            options.expect_window_min = atof(next());
         else if (!strcmp(arg, "--x11"))
             options.x11 = true;
         else if (arg[0] == '-' && arg[1] != '\0')
@@ -851,7 +855,22 @@ int main(int argc, char** argv)
     }
     printf("serenade-launcher: wrote %s\n", options.screenshot_path);
 
-    if (options.golden_path) {
+    if (options.expect_window_min >= 0.0) {
+        // Functional check (no golden): assert a window with content appeared. Used
+        // for targets whose pixels are non-deterministic, e.g. an interactive terminal
+        // launched through LaunchServer -- we only care that *a* window is on screen.
+        auto bmp_or_error = Serenade::load_png_bitmap({ options.screenshot_path, strlen(options.screenshot_path) });
+        if (bmp_or_error.is_error()) {
+            fprintf(stderr, "serenade-launcher: reading %s failed\n", options.screenshot_path);
+            return 1;
+        }
+        double fraction = Serenade::non_background_fraction(*bmp_or_error.value(), 24);
+        printf("serenade-launcher: expect-window: %.3f of pixels are non-background (min %.3f)\n", fraction, options.expect_window_min);
+        if (fraction < options.expect_window_min) {
+            fprintf(stderr, "serenade-launcher: no window appeared (non-background fraction %.3f < %.3f)\n", fraction, options.expect_window_min);
+            return 1;
+        }
+    } else if (options.golden_path) {
         if (!compare_golden(options.screenshot_path, options.golden_path, options.tolerance)) {
             fprintf(stderr, "serenade-launcher: screenshot does not match golden %s\n", options.golden_path);
             return 1;

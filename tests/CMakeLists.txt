@@ -144,3 +144,24 @@ add_test(NAME m4-clipboard-cross-app
         $<TARGET_FILE:WindowServer>
         $<TARGET_FILE:clip-copy>)
 set_tests_properties(m4-clipboard-cross-app PROPERTIES TIMEOUT 90)
+
+# Launch Terminal "from the desktop" (M4 exit criterion). launch-terminal is a
+# stand-in for the desktop menu's "open this app": it asks LaunchServer to open the
+# Terminal executable (Desktop::Launcher -> LaunchServer IPC -> Core::Process::spawn),
+# exactly the path a real desktop click takes. The launched terminal is interactive
+# (shell prompt + rc files), so its pixels are non-deterministic -- we can't golden it.
+# Instead --expect-window asserts a window with content actually appeared (non-bg pixel
+# fraction above the threshold); if the launch fails, no window shows and the test fails.
+add_test(NAME m4-launch-terminal
+    COMMAND serenade-launcher
+        --res ${SERENITY_SOURCE_DIR}/Base/res
+        --screenshot ${CMAKE_CURRENT_BINARY_DIR}/m4-launch.png
+        --delay 6000
+        --log-dir ${CMAKE_CURRENT_BINARY_DIR}
+        --service /tmp/session/0/portal/config=$<TARGET_FILE:ConfigServer>
+        --service /tmp/session/0/portal/clipboard=$<TARGET_FILE:Clipboard>
+        --service /tmp/session/0/portal/launch=$<TARGET_FILE:LaunchServer>
+        --expect-window 0.05
+        $<TARGET_FILE:WindowServer>
+        $<TARGET_FILE:launch-terminal> $<TARGET_FILE:Terminal>)
+set_tests_properties(m4-launch-terminal PROPERTIES TIMEOUT 90)

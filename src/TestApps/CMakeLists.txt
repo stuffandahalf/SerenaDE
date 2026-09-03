@@ -35,3 +35,17 @@ foreach(clip_app IN ITEMS clip-copy clip-paste)
     )
     target_link_libraries(${clip_app} PRIVATE AK LibCore LibGfx LibGUI LibMain)
 endforeach()
+
+# launch-terminal: asks LaunchServer to open an executable (the desktop's "open app"
+# path). No GUI of its own -- it links LibDesktop/LibURL instead of LibGUI.
+add_executable(launch-terminal launch_terminal.cpp)
+target_include_directories(launch-terminal PRIVATE
+    ${SERENITY_SOURCE_DIR}
+    ${SERENITY_SOURCE_DIR}/Userland
+    ${SERENITY_SOURCE_DIR}/Userland/Libraries
+    ${CMAKE_BINARY_DIR}
+    ${CMAKE_BINARY_DIR}/lagom
+    ${CMAKE_BINARY_DIR}/lagom/Userland/Libraries
+    ${CMAKE_BINARY_DIR}/lagom/Userland/Services
+)
+target_link_libraries(launch-terminal PRIVATE AK LibCore LibDesktop LibURL LibMain)

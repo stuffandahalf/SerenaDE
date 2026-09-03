@@ -17,7 +17,7 @@ Living tracker. Update in the same commit as the work it describes, and keep
 | ConfigServer / Clipboard           | M4        | partial     | Both build natively now (Clipboard via patch 0007); launcher runs them as services; no SystemServer yet |
 | SystemServer shim + LaunchServer   | M4        | partial     | LaunchServer builds natively (patch 0009) and runs as a Calculator dependency; SystemServer shim still to do |
 | Launcher + resource env            | M4        | partial     | Headless launcher complete (socket takeover, services, screenshot) plus `--x11` mode (writes `Mode=X11`, passes `$DISPLAY` through) and `--home <dir>` (sets `$HOME` for spawned apps); SystemServer shim still to do |
-| App subset (Terminal, FileManager, Settings, ImageViewer, PixelPaint) | M4 | partial | Terminal + FileManager build & render on host (patches 0013–0018) with golden tests; cross-app copy/paste proven via clip-copy/clip-paste fixtures + launcher `--co-app` (`m4-clipboard-cross-app`); launch-from-desktop not done (needs Taskbar); Settings/ImageViewer/PixelPaint not started |
+| App subset (Terminal, FileManager, Settings, ImageViewer, PixelPaint) | M4 | partial | Terminal + FileManager build & render on host (patches 0013–0018) with golden tests; cross-app copy/paste via clip-copy/clip-paste + launcher `--co-app` (`m4-clipboard-cross-app`); launch-from-desktop proven functionally via `launch-terminal` fixture + LaunchServer + `--expect-window` (`m4-launch-terminal`). All 3 M4 exit criteria pass. Settings/ImageViewer/PixelPaint not started; literal Taskbar UI is a follow-up |
 | FreeBSD support                    | M5        | not started | X-input path only; no evdev anywhere |
 | NetworkServer / AudioServer shims  | M6        | not started | Unblocks Browser/Mail/games |
 
@@ -61,9 +61,17 @@ decisions with trade-offs). Newest first.
     and renders it. No Serenity patch is involved (both live in this repo). The golden is
     byte-stable (AE=0); a negative control (paster alone → "(empty)") differs in the label
     region, confirming the text genuinely crossed processes. `m4-clipboard-cross-app`.
-  - **Remaining M4 exit criterion:** launch Terminal from the desktop — needs the
-    Taskbar/desktop UI (a Serenity service/app not yet built) plus a scripted menu click;
-    LaunchServer itself already builds and runs as a service.
+  - **Launch-from-desktop is proven functionally (no new Serenity patch).** The
+    `launch-terminal` fixture (src/TestApps) asks LaunchServer to open the Terminal
+    executable via `Desktop::Launcher::open()` — the same IPC path a desktop menu click
+    takes. LaunchServer's `open_file_url` spawns any regular executable directly
+    (`Core::Process::spawn`), so no `.app` registration or app-dir redirection is needed.
+    The launched terminal is interactive (prompt + rc files) → non-deterministic pixels,
+    so it can't be a golden; instead the launcher's new `--expect-window <min-fraction>`
+    asserts a window with content actually appeared (dominant-color non-bg fraction). A
+    negative control (non-executable target → no window) fails the check, confirming it is
+    not a false positive. `m4-launch-terminal`. All three M4 exit criteria now pass; the
+    literal Taskbar/desktop UI (a real menu to click) remains a follow-up.
 
 - 2026-09-01 — **M3 complete: real X11 screen + input backends.** WindowServer now
   renders to a live `$DISPLAY` and accepts real mouse/keyboard, via a third
