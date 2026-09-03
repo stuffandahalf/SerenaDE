@@ -17,7 +17,7 @@ Living tracker. Update in the same commit as the work it describes, and keep
 | ConfigServer / Clipboard           | M4        | partial     | Both build natively now (Clipboard via patch 0007); launcher runs them as services; no SystemServer yet |
 | SystemServer shim + LaunchServer   | M4        | partial     | LaunchServer builds natively (patch 0009) and runs as a Calculator dependency; SystemServer shim still to do |
 | Launcher + resource env            | M4        | partial     | Headless launcher complete (socket takeover, services, screenshot) plus `--x11` mode (writes `Mode=X11`, passes `$DISPLAY` through) and `--home <dir>` (sets `$HOME` for spawned apps); SystemServer shim still to do |
-| App subset (Terminal, FileManager, Settings, ImageViewer, PixelPaint) | M4 | partial | Terminal + FileManager build & render on host (patches 0013–0018) with golden tests; cross-app copy/paste via clip-copy/clip-paste + launcher `--co-app` (`m4-clipboard-cross-app`); launch-from-desktop proven functionally via `launch-terminal` fixture + LaunchServer + `--expect-window` (`m4-launch-terminal`). All 3 M4 exit criteria pass. Settings/ImageViewer/PixelPaint not started; literal Taskbar UI is a follow-up |
+| App subset (Terminal, FileManager, Settings, ImageViewer, PixelPaint) | M4 | partial | Terminal + FileManager build & render on host (patches 0013–0018); Terminal via golden test, FileManager via functional `--expect-window` check (its window has host-dependent content, so no portable golden); cross-app copy/paste via clip-copy/clip-paste + launcher `--co-app` (`m4-clipboard-cross-app`); launch-from-desktop proven functionally via `launch-terminal` fixture + LaunchServer + `--expect-window` (`m4-launch-terminal`). All 3 M4 exit criteria pass. Settings/ImageViewer/PixelPaint not started; literal Taskbar UI is a follow-up |
 | FreeBSD support                    | M5        | not started | X-input path only; no evdev anywhere |
 | NetworkServer / AudioServer shims  | M6        | not started | Unblocks Browser/Mail/games |
 
@@ -26,11 +26,13 @@ Living tracker. Update in the same commit as the work it describes, and keep
 Record discoveries here as they happen (surprising `#ifdef` gaps, API quirks,
 decisions with trade-offs). Newest first.
 
-- 2026-09-02 — **M4 checkpoint: Terminal + FileManager run natively on host.** Two
-  flagship apps now build via Lagom and render real content headlessly, each behind a
-  deterministic golden test (`m4-terminal-echo`, `m4-filemanager-docs`); full serial
-  ctest 244/244. Patches 0013–0018; the launcher gains `--home <dir>` (sets `$HOME` for
-  spawned apps, needed by FileManager/config reads). Findings:
+ - 2026-09-02 — **M4 checkpoint: Terminal + FileManager run natively on host.** Two
+   flagship apps now build via Lagom and render real content headlessly. Terminal is
+   behind a deterministic golden test (`m4-terminal-echo`); FileManager uses a functional
+   window check (`m4-filemanager-docs`, `--expect-window`) because its full window carries
+   host-dependent content (sidebar favorites, date-column timezone) that an exact golden
+   cannot match across hosts. Patches 0013–0018; the launcher gains `--home <dir>` (sets
+   `$HOME` for spawned apps, needed by FileManager/config reads). Findings:
   - **FileManager's heavy dep chain was already built.** It links LibArchive/Audio/
     Config/PDF/Threading/FileSystem/Maps — all but **LibMaps** were already in
     `lagom_standard_libraries`, and its `FileOperation` worker service is built by the

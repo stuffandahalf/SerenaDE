@@ -253,8 +253,10 @@ third `ScreenBackend`, no compositor changes). All Xlib stays in SerenaDE's
 (`SerenadeX11.h`) plus the mode plumbing. Verified headless against a 24-bit Xvfb
  (render, cursor motion, button press/drag/release, and typed keys). **M4 exit criteria
   are met:** Terminal and FileManager build via Lagom and render real content headlessly
-  (patches 0013–0018), each behind a deterministic golden test (`m4-terminal-echo`,
-  `m4-filemanager-docs`); cross-app copy/paste is proven by two fixture processes over the
+   (patches 0013–0018): Terminal behind a deterministic golden (`m4-terminal-echo`), and
+   FileManager behind a functional `--expect-window` check (`m4-filemanager-docs`) since its
+   window carries host-dependent content that an exact golden can't match across hosts;
+   cross-app copy/paste is proven by two fixture processes over the
   real Clipboard service (`m4-clipboard-cross-app`); and launch-from-desktop is proven
   functionally via a `launch-terminal` fixture that asks LaunchServer to spawn Terminal
   (the desktop menu's own IPC path), asserted with the launcher's new `--expect-window`
