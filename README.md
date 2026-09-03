@@ -1,24 +1,53 @@
 # SerenaDE
 
 Run the **Serenity OS desktop environment** — WindowServer, LibGUI, LibGfx and
-the userland applications — natively on **Linux and BSDs**, using **X11** for
-display and input.
+the userland applications — natively on **Linux** (BSDs are the stated target),
+using **X11** for display and input.
 
 This repo is a *shim*: it contains only the platform-specific glue (X11 screen
 and input backends, host service shims, launcher, tests, CI) plus a minimal
-tracked patch set applied to a pinned [Serenity](https://github.com/SerenityOS/serenity)
-source tree, which is built with its official host-build system, Lagom.
+tracked patch set (22 patches) applied to a pinned
+[Serenity](https://github.com/SerenityOS/serenity) source tree, which is built
+with its official host-build system, Lagom.
 
-**Status: scaffold.** See [`AGENTS.md`](AGENTS.md) for the project structure,
-architecture decisions, and the milestone-by-milestone implementation plan.
+**Status: M0–M4 complete.** A working headless and X11 desktop with several real
+apps, the core IPC services, and the Taskbar — which can launch apps from its
+dock. See [`AGENTS.md`](AGENTS.md) for architecture + the milestone plan, and
+[`docs/PORTING.md`](docs/PORTING.md) for the porting log.
 
-## Quick start (once M0 lands)
+## What runs today
+
+- **WindowServer** with two screen backends: a virtual one (headless → PNG) and a
+  real **X11** one (`Mode=X11`, `XPutImage` blit, optional zero-copy/`XShm`).
+- **Services** as plain-UDS IPC servers: ConfigServer, Clipboard, LaunchServer.
+- **Apps** built via Lagom and rendering real content: AnalogClock, Calculator,
+  About, Terminal, FileManager.
+- **Taskbar / desktop UI**: the real Serenity Taskbar (dock + system menu) builds
+  on host; a click on a dock icon launches that app through the Taskbar's own
+  spawn path.
+- **Cross-app copy/paste** over the real Clipboard service.
+
+Two run modes: **headless** (virtual screen, screenshot to PNG — used by the test
+suite) and **X11** (`--x11`, against Xvfb or a real display). The full serial ctest
+suite (golden + functional tests) is green at **247/247**.
+
+## Quick start
 
 ```sh
-cmake -B Build -G Ninja -DSERENITY_SOURCE_DIR=~/git/serenity
+# Development (preferred): point at a local Serenity checkout
+cmake -S . -B Build -G Ninja \
+      -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+      -DSERENITY_SOURCE_DIR=~/git/serenity
 cmake --build Build
-ctest --test-dir Build
+ctest --test-dir Build --output-on-failure   # serial: do NOT add -j
+
+# No local checkout: a pinned ref is fetched (slow)
+cmake -S . -B Build -G Ninja -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
 ```
+
+Notes: Clang is required (don't pass `CMAKE_BUILD_TYPE`; Lagom owns build config).
+X11 dev packages (`libX11`, `libXext`) are needed for the X11 backend. CI builds on
+Ubuntu noble with Clang 22 pinned.
 
 ## Disclaimer
 
