@@ -1,0 +1,102 @@
+From ea3d1cf5dff6b5c01ff08f12b4535f6cc73b5e67 Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory@serenade.local>
+Date: Thu, 03 Sep 2026 00:00:00 +0000
+Subject: [PATCH 20/21] Desktop/Taskbar: Host-overridable app dir and null-icon guard
+
+Two things keep the desktop from listing and launching real apps on a host. The
+pinned .af files under /res/apps point at /bin/... executables that do not exist
+off-Serenity, so AppFile discovery finds nothing to show or launch. Add
+AppFile::app_files_directory(), which honours $SERENADE_APP_DIR on hosts (falling
+back to /res/apps, and always /res/apps on Serenity), and route the app-discovery
+call sites through it so a host session can point the desktop at apps whose
+executables actually exist (the built Lagom binaries).
+
+Also guard the quick-launch dock's paint path against an entry with no loadable
+icon: bitmap_for_size() returns null for such entries, which used to be
+dereferenced and crash the whole Taskbar. On Serenity every entry has an icon so
+this is a no-op there; on a host it just paints the button without a glyph.
+
+diff --git a/Userland/Libraries/LibDesktop/AppFile.h b/Userland/Libraries/LibDesktop/AppFile.h
+index e1eb49d6..0ee695fc 100644
+@@ -17,6 +17,10 @@
+ class AppFile : public RefCounted<AppFile> {
+ public:
+     static constexpr auto APP_FILES_DIRECTORY = "/res/apps"sv;
++    // Effective app-files directory. On Serenity this is always /res/apps; on a host
++    // port it may be overridden with $SERENADE_APP_DIR so the desktop can list apps
++    // whose executables actually exist (the built Lagom binaries).
++    static StringView app_files_directory();
+ 
+     static bool exists_for_app(StringView app_name);
+     static ByteString file_for_app(StringView app_name);
+@@ -24,7 +28,7 @@
+ 
+     static NonnullRefPtr<AppFile> get_for_app(StringView app_name);
+     static NonnullRefPtr<AppFile> open(StringView path);
+-    static void for_each(Function<void(NonnullRefPtr<AppFile>)>, StringView directory = APP_FILES_DIRECTORY);
++    static void for_each(Function<void(NonnullRefPtr<AppFile>)>, StringView directory = app_files_directory());
+     ~AppFile() = default;
+ 
+     bool is_valid() const { return m_valid; }
+diff --git a/Userland/Libraries/LibDesktop/AppFile.cpp b/Userland/Libraries/LibDesktop/AppFile.cpp
+index af84468d..f979928e 100644
+@@ -9,6 +9,8 @@
+ #include <AK/Function.h>
+ #include <AK/Vector.h>
+ #include <LibCore/ConfigFile.h>
++#include <cstdlib>
++#include <cstring>
+ #include <LibCore/DirIterator.h>
+ #include <LibCore/Process.h>
+ #include <LibCore/StandardPaths.h>
+@@ -18,9 +20,18 @@
+ 
+ namespace Desktop {
+ 
++StringView AppFile::app_files_directory()
++{
++#if !defined(AK_OS_SERENITY)
++    if (auto const* dir = getenv("SERENADE_APP_DIR"))
++        return StringView { dir, strlen(dir) };
++#endif
++    return APP_FILES_DIRECTORY;
++}
++
+ ByteString AppFile::app_file_path_for_app(StringView app_name)
+ {
+-    return ByteString::formatted("{}/{}.af", APP_FILES_DIRECTORY, app_name);
++    return ByteString::formatted("{}/{}.af", app_files_directory(), app_name);
+ }
+ 
+ bool AppFile::exists_for_app(StringView app_name)
+diff --git a/Userland/Services/Taskbar/QuickLaunchWidget.cpp b/Userland/Services/Taskbar/QuickLaunchWidget.cpp
+index 904ec537..c3556902 100644
+@@ -41,7 +41,7 @@
+     if (path.ends_with(".af"sv)) {
+         auto af_path = path.to_byte_string();
+         if (!path.starts_with('/'))
+-            af_path = ByteString::formatted("{}/{}", Desktop::AppFile::APP_FILES_DIRECTORY, path);
++            af_path = ByteString::formatted("{}/{}", Desktop::AppFile::app_files_directory(), path);
+ 
+         return make<QuickLaunchEntryAppFile>(Desktop::AppFile::open(af_path));
+     }
+@@ -262,6 +262,8 @@
+         Gfx::StylePainter::paint_button(painter, rect, palette(), Gfx::ButtonStyle::Coolbar, entry->is_pressed(), entry->is_hovered());
+ 
+         auto const* icon = entry->icon().bitmap_for_size(16);
++        if (!icon)
++            return; // Entry has no loadable icon (e.g. host without the app's resources); paint just the button.
+         auto content_rect = rect.shrunken(8, 2);
+         auto icon_location = content_rect.center().translated(-(icon->width() / 2), -(icon->height() / 2));
+         if (entry->is_pressed())
+diff --git a/Userland/Services/Taskbar/TaskbarWindow.cpp b/Userland/Services/Taskbar/TaskbarWindow.cpp
+index 82fc0b57..bc43a319 100644
+@@ -158,7 +158,7 @@
+ 
+ ErrorOr<void> TaskbarWindow::load_assistant()
+ {
+-    auto af_path = TRY(String::formatted("{}/{}", Desktop::AppFile::APP_FILES_DIRECTORY, "Assistant.af"));
++    auto af_path = TRY(String::formatted("{}/{}", Desktop::AppFile::app_files_directory(), "Assistant.af"));
+     m_assistant_app_file = Desktop::AppFile::open(af_path);
+ 
+     return {};

@@ -1,0 +1,94 @@
+From 9286fc91954654e779e292aff147f6f1d9aad856 Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory@serenade.local>
+Date: Thu, 03 Sep 2026 00:00:00 +0000
+Subject: [PATCH 19/21] Lagom/WindowServer: Build the Taskbar on host systems
+
+The Taskbar is the desktop's dock + system-menu UI and is the natural home for
+"launch an app from the desktop". It was gated behind if(SERENITYOS), so it never
+built under Lagom. Move it to the unconditional services list.
+
+It only needs WindowServer::WMEventMask (for make_window_manager), but its single
+#include <WindowServer/Window.h> drags in Screen.h -> HardwareScreenBackend.h ->
+ScreenBackend.h -> <sys/devices/gpu.h>, a Serenity kernel header absent on hosts.
+Extract WMEventMask into its own small header and include that instead, so the
+Taskbar never pulls in the heavy WindowServer window/screen machinery.
+
+diff --git a/Userland/Services/CMakeLists.txt b/Userland/Services/CMakeLists.txt
+index 2ef6a3ae..ab101a01 100644
+@@ -5,6 +5,7 @@
+ add_subdirectory(LaunchServer)
+ add_subdirectory(LookupServer)
+ add_subdirectory(SSHServer)
++add_subdirectory(Taskbar)
+ add_subdirectory(WebServer)
+ add_subdirectory(WindowServer)
+ 
+@@ -25,7 +26,6 @@
+     add_subdirectory(SpiceAgent)
+     add_subdirectory(SQLServer)
+     add_subdirectory(SystemServer)
+-    add_subdirectory(Taskbar)
+     add_subdirectory(TelnetServer)
+     add_subdirectory(WebContent)
+     add_subdirectory(WebDriver)
+diff --git a/Userland/Services/WindowServer/WMEventMask.h b/Userland/Services/WindowServer/WMEventMask.h
+new file mode 100644
+index 00000000..cd72babd 100644
+@@ -0,0 +1,20 @@
++/*
++ * Copyright (c) 2018-2023, Andreas Kling <kling@serenityos.org>
++ *
++ * SPDX-License-Identifier: BSD-2-Clause
++ */
++
++#pragma once
++
++namespace WindowServer {
++
++enum WMEventMask {
++    WindowRectChanges = 1 << 0,
++    WindowStateChanges = 1 << 1,
++    WindowIconChanges = 1 << 2,
++    WindowRemovals = 1 << 3,
++    WorkspaceChanges = 1 << 4,
++    KeymapChanged = 1 << 5,
++};
++
++}
+diff --git a/Userland/Services/WindowServer/Window.h b/Userland/Services/WindowServer/Window.h
+index d939a1d2..9012c334 100644
+@@ -18,6 +18,7 @@
+ #include <WindowServer/Cursor.h>
+ #include <WindowServer/Menubar.h>
+ #include <WindowServer/Screen.h>
++#include <WindowServer/WMEventMask.h>
+ #include <WindowServer/WindowFrame.h>
+ #include <WindowServer/WindowMode.h>
+ #include <WindowServer/WindowType.h>
+@@ -33,15 +34,6 @@
+ class MouseEvent;
+ class WindowStack;
+ 
+-enum WMEventMask {
+-    WindowRectChanges = 1 << 0,
+-    WindowStateChanges = 1 << 1,
+-    WindowIconChanges = 1 << 2,
+-    WindowRemovals = 1 << 3,
+-    WorkspaceChanges = 1 << 4,
+-    KeymapChanged = 1 << 5,
+-};
+-
+ enum class WindowTileType {
+     None = 0,
+     Left,
+diff --git a/Userland/Services/Taskbar/main.cpp b/Userland/Services/Taskbar/main.cpp
+index 9668cb00..a89f2b0a 100644
+@@ -28,7 +28,7 @@
+ #include <LibGfx/Palette.h>
+ #include <LibGfx/SystemTheme.h>
+ #include <LibMain/Main.h>
+-#include <WindowServer/Window.h>
++#include <WindowServer/WMEventMask.h>
+ #include <signal.h>
+ #include <stdio.h>
+ #include <sys/wait.h>

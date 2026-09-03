@@ -17,7 +17,8 @@ Living tracker. Update in the same commit as the work it describes, and keep
 | ConfigServer / Clipboard           | M4        | partial     | Both build natively now (Clipboard via patch 0007); launcher runs them as services; no SystemServer yet |
 | SystemServer shim + LaunchServer   | M4        | partial     | LaunchServer builds natively (patch 0009) and runs as a Calculator dependency; SystemServer shim still to do |
 | Launcher + resource env            | M4        | partial     | Headless launcher complete (socket takeover, services, screenshot) plus `--x11` mode (writes `Mode=X11`, passes `$DISPLAY` through) and `--home <dir>` (sets `$HOME` for spawned apps); SystemServer shim still to do |
-| App subset (Terminal, FileManager, Settings, ImageViewer, PixelPaint) | M4 | partial | Terminal + FileManager build & render on host (patches 0013–0018); Terminal via golden test, FileManager via functional `--expect-window` check (its window has host-dependent content, so no portable golden); cross-app copy/paste via clip-copy/clip-paste + launcher `--co-app` (`m4-clipboard-cross-app`); launch-from-desktop proven functionally via `launch-terminal` fixture + LaunchServer + `--expect-window` (`m4-launch-terminal`). All 3 M4 exit criteria pass. Settings/ImageViewer/PixelPaint not started; literal Taskbar UI is a follow-up |
+| App subset (Terminal, FileManager, Settings, ImageViewer, PixelPaint) | M4 | partial | Terminal + FileManager build & render on host (patches 0013–0018); Terminal via golden test, FileManager via functional `--expect-window` check (its window has host-dependent content, so no portable golden); cross-app copy/paste via clip-copy/clip-paste + launcher `--co-app` (`m4-clipboard-cross-app`). All 3 M4 exit criteria pass. Settings/ImageViewer/PixelPaint not started |
+| Taskbar / desktop UI               | M4        | done        | Real Serenity Taskbar builds under Lagom (patches 0019–0021: heavy `<WindowServer/Window.h>` include swapped for a light `WMEventMask.h`; `$SERENADE_APP_DIR` app-dir override so the dock lists apps with real executables; `Process::spawn` working-dir via portable `..._np` chdir). Launch-from-desktop proven two ways: `m4-launch-terminal` (LaunchServer IPC) and `m4-taskbar-launch` (scripted click on the Terminal quick-launch dock icon → the Taskbar's own spawn path opens a real window) |
 | FreeBSD support                    | M5        | not started | X-input path only; no evdev anywhere |
 | NetworkServer / AudioServer shims  | M6        | not started | Unblocks Browser/Mail/games |
 
@@ -25,6 +26,43 @@ Living tracker. Update in the same commit as the work it describes, and keep
 
 Record discoveries here as they happen (surprising `#ifdef` gaps, API quirks,
 decisions with trade-offs). Newest first.
+
+ - 2026-09-03 — **M4: the real Taskbar/desktop UI builds and launches apps on host.** The
+   Serenity Taskbar (dock + system menu) now compiles under Lagom and a scripted click on
+   its Terminal quick-launch icon opens a real Terminal window through the Taskbar's own
+   spawn path. Patches 0019–0021; new test `m4-taskbar-launch`. Findings:
+   - **Taskbar was gated behind `if(SERENITYOS)`** in `Userland/Services/CMakeLists.txt`, so
+     it never built for Lagom. Its deps (LibGUI/Desktop/Config/IPC/URL) were all already
+     host-built, and it has no GML — moving it to the unconditional list was enough *except*
+     for one include.
+   - **`#include <WindowServer/Window.h>` is a landmine off-Serenity.** The Taskbar only
+     needs `WindowServer::WMEventMask`, but that header drags in `Screen.h →
+     HardwareScreenBackend.h → ScreenBackend.h → <sys/devices/gpu.h>` (a Serenity kernel
+     header, absent on hosts). Extracted the self-contained `WMEventMask` enum into its own
+     tiny `WMEventMask.h` and pointed both `Window.h` and the Taskbar at it, so the Taskbar
+     never pulls in the window/screen machinery.
+   - **Desktop app discovery finds nothing on a host.** The pinned `.af` files under
+     `/res/apps` point at `/bin/...` executables that don't exist off-Serenity, and
+     `AppFile::for_each` + `access(X_OK)` filters them all out. Added
+     `AppFile::app_files_directory()`, which honours `$SERENADE_APP_DIR` on hosts (always
+     `/res/apps` on Serenity) so a session can point the desktop at apps whose executables
+     actually exist (the built Lagom binaries). Routed the discovery call sites through it.
+   - **The quick-launch dock crashed on a null icon.** `entry->icon().bitmap_for_size(16)`
+     returns null for an entry with no loadable icon, which was dereferenced in
+     `paint_event` → SIGSEGV that took down the whole Taskbar (and left WindowServer with a
+     dangling `RefPtr`). Guarded the paint path to skip the blit. On Serenity every entry has
+     an icon, so this is a no-op there.
+   - **`Core::Process::spawn` with a working directory was a `TODO()` off-Serenity.** The
+     Taskbar launches apps into the user's home dir, which hit that `TODO()` and aborted.
+     Same portability class as patch 0018: use the portable
+     `posix_spawn_file_actions_addchdir_np` (glibc ≥ 2.24) on hosts, keep Serenity's name.
+   - **The launch test is functional, not a golden.** `m4-taskbar-launch` (driver
+     `tests/scripts/taskbar-launch.sh`) points `$SERENADE_APP_DIR` at one `Terminal.af` →
+     built binary, brings up the Taskbar, and scripts a click on the Terminal dock icon
+     (3rd slot; its x is font-determined but the font file is identical across hosts, so it's
+     stable). With only the taskbar on screen the non-bg fraction is ~0.035; a launched
+     Terminal window pushes it to ~0.12, so `--expect-window 0.07` cleanly separates "launched"
+     from "just the taskbar". A no-click negative control (0.035) fails as expected.
 
  - 2026-09-02 — **M4 checkpoint: Terminal + FileManager run natively on host.** Two
    flagship apps now build via Lagom and render real content headlessly. Terminal is

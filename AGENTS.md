@@ -260,10 +260,17 @@ third `ScreenBackend`, no compositor changes). All Xlib stays in SerenaDE's
   real Clipboard service (`m4-clipboard-cross-app`); and launch-from-desktop is proven
   functionally via a `launch-terminal` fixture that asks LaunchServer to spawn Terminal
   (the desktop menu's own IPC path), asserted with the launcher's new `--expect-window`
-  check since an interactive terminal can't be goldened (`m4-launch-terminal`). The
-  launcher also gained `--home <dir>` and `--co-app <binary>`. Full serial ctest is
-  **246/246**. Remaining M4 task items (not exit criteria): the literal Taskbar/desktop UI,
-  and Settings/ImageViewer/PixelPaint. See `docs/PORTING.md`.
+   check since an interactive terminal can't be goldened (`m4-launch-terminal`). The
+   launcher also gained `--home <dir>` and `--co-app <binary>`. The literal Taskbar/desktop
+   UI is now built too (patches 0019–0021): the real Serenity Taskbar compiles under Lagom
+   (its one heavy `<WindowServer/Window.h>` include is swapped for a new light
+   `WMEventMask.h`), desktop app discovery honours `$SERENADE_APP_DIR` on hosts so the dock
+   can list apps whose executables actually exist, and `Core::Process::spawn` supports a
+   working directory off-Serenity via the portable `..._np` chdir action. A scripted click
+   on the Terminal quick-launch dock icon launches the built Terminal through the Taskbar's
+   own spawn path (`m4-taskbar-launch`, functional `--expect-window`). Full serial ctest is
+   **247/247**. Remaining M4 task items (not exit criteria): Settings/ImageViewer/PixelPaint.
+   See `docs/PORTING.md`.
 
 ## Patch workflow
 

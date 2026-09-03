@@ -1,0 +1,23 @@
+From fecb2ba41feeddfda299fd8e0dc495f0c3c22855 Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory@serenade.local>
+Date: Thu, 03 Sep 2026 00:00:00 +0000
+Subject: [PATCH 21/21] LibCore: Support working_directory in Process::spawn on hosts
+
+Process::spawn() with a working directory hit TODO() off-Serenity, so any app that
+spawns a child in a specific directory (e.g. the Taskbar launching an app into the
+user's home) aborted. Use the portable posix_spawn_file_actions_addchdir_np spelling
+(glibc >= 2.24), which is what host glibc ships; Serenity keeps its own name.
+
+diff --git a/Userland/Libraries/LibCore/Process.cpp b/Userland/Libraries/LibCore/Process.cpp
+index 02a3ce57..c4bd41b6 100644
+@@ -80,8 +80,8 @@
+ #ifdef AK_OS_SERENITY
+         CHECK(posix_spawn_file_actions_addchdir(&spawn_actions, options.working_directory->characters()));
+ #else
+-        // FIXME: Support ProcessSpawnOptions::working_directory n platforms that support it.
+-        TODO();
++        // Hosts expose the portable _np spelling of the chdir file action (glibc >= 2.24).
++        CHECK(posix_spawn_file_actions_addchdir_np(&spawn_actions, options.working_directory->characters()));
+ #endif
+     }
+ 

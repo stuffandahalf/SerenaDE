@@ -166,3 +166,23 @@ add_test(NAME m4-launch-terminal
         $<TARGET_FILE:WindowServer>
         $<TARGET_FILE:launch-terminal> $<TARGET_FILE:Terminal>)
 set_tests_properties(m4-launch-terminal PROPERTIES TIMEOUT 90)
+
+# Launch Terminal from the real Taskbar UI (M4 exit criterion, full-fidelity). The driver
+# script (scripts/taskbar-launch.sh) points desktop app discovery at a controlled apps dir
+# holding one Terminal.af -> built binary, brings up the actual Taskbar, and scripts a click
+# on the Terminal quick-launch dock icon. That drives Taskbar -> AppFile::spawn_with_escalation
+# -> Core::Process::spawn, opening a real Terminal window on the same WindowServer. Functional
+# (--expect-window), not a golden: the launched terminal is interactive/non-deterministic.
+add_test(NAME m4-taskbar-launch
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/taskbar-launch.sh
+        $<TARGET_FILE:serenade-launcher>
+        ${SERENITY_SOURCE_DIR}/Base/res
+        ${CMAKE_CURRENT_BINARY_DIR}/m4-taskbar.png
+        ${CMAKE_CURRENT_BINARY_DIR}
+        $<TARGET_FILE:WindowServer>
+        $<TARGET_FILE:Taskbar>
+        $<TARGET_FILE:ConfigServer>
+        $<TARGET_FILE:Clipboard>
+        $<TARGET_FILE:LaunchServer>
+        $<TARGET_FILE:Terminal>)
+set_tests_properties(m4-taskbar-launch PROPERTIES TIMEOUT 90)
