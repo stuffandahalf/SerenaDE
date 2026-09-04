@@ -294,8 +294,10 @@ path) is a glibc extension absent from BSD libcs, so it breaks the FreeBSD build
 chdir file action to Serenity/glibc and adds a portable fork/chdir/exec fallback for other hosts (a
 compile-time flag keeps glibc behavior byte-identical while the fallback is syntax-checked on Linux); the
 fallback was validated end-to-end by forcing it on and re-running the cwd-spawn launch tests. The FreeBSD
-CI job remains commented out pending a self-hosted runner (GitHub has no hosted FreeBSD). Remaining M5:
-the polish items (DPI/scale, cursor themes, focus) and wiring the FreeBSD CI job once a runner exists.
+CI job is now a real `build-freebsd` step targeting a `[self-hosted, freebsd]` runner, gated by the repo
+variable `FREEBSD_CI_ENABLED` (default off) so it stays inert until a runner is provisioned and the variable
+is set — GitHub has no hosted FreeBSD. Remaining M5: activate that job once a runner exists, and the polish
+items (DPI/scale factors, cursor themes; focus/raise already works in the WindowServer).
 
 ## Patch workflow
 

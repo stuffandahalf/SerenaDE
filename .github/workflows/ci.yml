@@ -54,11 +54,42 @@ jobs:
       - name: Test
         run: ctest --test-dir Build --output-on-failure
 
-  # FreeBSD job: requires a self-hosted runner (GitHub has no hosted FreeBSD).
-  # By design this codebase contains no evdev or other Linux-only input path,
-  # so the same sources must configure and build here unchanged.
-  #
-  # build-freebsd:
-  #   runs-on: [self-hosted, freebsd]
-  #   steps:
-  #     - ... (mirror build-linux; pkg install cmake ninja clang libX11)
+  # M5 FreeBSD job. GitHub has no hosted FreeBSD runner, so this targets a
+  # self-hosted one and is gated by the repo variable FREEBSD_CI_ENABLED (default off):
+  # it stays inert until a [self-hosted, freebsd] runner is provisioned AND the variable
+  # is set to "true" in the repo settings -- otherwise every push would queue forever
+  # waiting for a runner that does not exist. By design this codebase has no evdev or other
+  # Linux-only input path, so the same sources must configure and build here unchanged; the
+  # only platform-specific portability fixes live in patches/ (see docs/PORTING.md).
+  # Package names/versions below are for a recent FreeBSD (13/14) and may need adjusting per
+  # release; the Serenity pin needs a recent Clang (>= 22 on Linux), so install one if the
+  # base clang is too old.
+  build-freebsd:
+    runs-on: [self-hosted, freebsd]
+    if: ${{ vars.FREEBSD_CI_ENABLED == 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Keep in sync with cmake/FetchSerenity.cmake (SERENITY_PINNED_REF).
+      - name: Checkout pinned Serenity
+        uses: actions/checkout@v4
+        with:
+          repository: SerenityOS/serenity
+          ref: 7784b1f535a431635443e04d37a9e279ddb9b8eb
+          path: deps/serenity
+
+      - name: Install dependencies
+        run: |
+          pkg install -y cmake ninja git llvm18 libX11
+
+      - name: Configure
+        run: >
+          cmake -B Build -G Ninja
+          -DCMAKE_C_COMPILER=clang18 -DCMAKE_CXX_COMPILER=clang++18
+          -DSERENITY_SOURCE_DIR=${{ github.workspace }}/deps/serenity
+
+      - name: Build
+        run: cmake --build Build
+
+      - name: Test
+        run: ctest --test-dir Build --output-on-failure
