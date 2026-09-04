@@ -275,12 +275,17 @@ third `ScreenBackend`, no compositor changes). All Xlib stays in SerenaDE's
      also builds and renders on host now (patch 0023 — it links only already-built Lagom libs,
      so no portability changes); it shows its panel grid deterministically from the pinned
      `/res/apps`, covered by a golden test (`m4-settings`). The **ImageViewer** app builds and
-     renders on host too (patch 0024 — wired `LibFileSystemAccessClient` + its generated IPC
-     endpoint headers into Lagom, added after the Services subdir since it depends on the
-     WindowServer target); launched with no file argument it shows its empty window deterministically
-     without needing a running FileSystemAccessServer, covered by a golden test (`m4-imageviewer`).
-     Full serial ctest is **249/249**. Remaining M4 task item (not an exit criterion): PixelPaint.
-     See `docs/PORTING.md`.
+      renders on host too (patch 0024 — wired `LibFileSystemAccessClient` + its generated IPC
+      endpoint headers into Lagom, added after the Services subdir since it depends on the
+      WindowServer target); launched with no file argument it shows its empty window deterministically
+      without needing a running FileSystemAccessServer, covered by a golden test (`m4-imageviewer`).
+      The **PixelPaint** app (the last M4 app-subset item) builds and renders on host as well
+      (patch 0025 — added to the apps list with its GML include path; building it surfaced a latent
+      out-of-bounds write in `BrushTool::build_cursor` for small brushes, fixed by flooring the cursor
+      box); launched with no file argument it shows its empty document deterministically, covered by a
+      golden test (`m4-pixelpaint`, fresh per-run `$HOME` since it restores/saves window placement).
+      All five M4 apps (Terminal, FileManager, Settings, ImageViewer, PixelPaint) now build and render.
+      Full serial ctest is **250/250**. See `docs/PORTING.md`.
 
 ## Patch workflow
 

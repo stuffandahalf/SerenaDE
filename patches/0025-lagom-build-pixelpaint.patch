@@ -1,0 +1,72 @@
+From 504ed79e29453f9e186fabf1a845a1d4fd5f3b8c Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory@serenade.local>
+Date: Fri, 04 Sep 2026 00:00:00 +0000
+Subject: [PATCH 25/25] Lagom: Build the PixelPaint app on host systems
+
+PixelPaint is the last M4 app-subset item. Its link dependencies (including
+LibFileSystemAccessClient and LibThreading) all already build on host, so it is
+added to the host applications list. The component-level 'DEPENDS ImageDecoder
+FileSystemAccessServer' build-ordering hint is dropped because those service
+components are not built on host; the real dependencies (LibImageDecoderClient,
+LibFileSystemAccessClient) do build. As with FileManager, stringify_gml() emits the
+*GML.h headers into the target binary dir while the sources include them as
+<Applications/PixelPaint/...>, so the binary Userland root is exposed as an include
+path.
+
+Building it surfaced a latent out-of-bounds write: BrushTool::build_cursor() draws a
+crosshair at centered +/- 5 (line width up to 3) onto a cursor bitmap sized from the
+brush. The size-1 PenTool default yields a 2x2 bitmap, so the crosshair writes past the
+backing store -- benign on SerenityOS's allocator but fatal under glibc (malloc(): invalid
+size). Floor the cursor box to 16px so centered +/- 5 always fits. m4-pixelpaint golden-
+covers the deterministic empty document (no file argument -> no FileSystemAccessServer
+needed at runtime).
+
+diff --git a/Meta/Lagom/CMakeLists.txt b/Meta/Lagom/CMakeLists.txt
+index 60e399b3..edeb44b2 100644
+@@ -577,6 +577,7 @@
+         add_serenity_subdirectory(Userland/Applications/Calculator)
+         add_serenity_subdirectory(Userland/Applications/FileManager)
+         add_serenity_subdirectory(Userland/Applications/ImageViewer)
++        add_serenity_subdirectory(Userland/Applications/PixelPaint)
+         add_serenity_subdirectory(Userland/Applications/Settings)
+         add_serenity_subdirectory(Userland/Applications/Terminal)
+ 
+diff --git a/Userland/Applications/PixelPaint/CMakeLists.txt b/Userland/Applications/PixelPaint/CMakeLists.txt
+index 605c8f7c..4335dac2 100644
+@@ -1,8 +1,11 @@
++# The ImageDecoder and FileSystemAccessServer service components are not built on
++# host systems, so the component-level build-ordering dependencies on them are
++# dropped here. The app's real dependencies (LibImageDecoderClient and
++# LibFileSystemAccessClient, linked below) do build on host.
+ serenity_component(
+     PixelPaint
+     RECOMMENDED
+     TARGETS PixelPaint
+-    DEPENDS ImageDecoder FileSystemAccessServer
+ )
+ 
+ stringify_gml(PixelPaintWindow.gml PixelPaintWindowGML.h pixel_paint_window_gml)
+@@ -95,3 +98,8 @@
+ 
+ serenity_app(PixelPaint ICON app-pixel-paint)
+ target_link_libraries(PixelPaint PRIVATE LibCore LibImageDecoderClient LibGUI LibGfx LibFileSystemAccessClient LibConfig LibDesktop LibMain LibThreading LibURL)
++
++# stringify_gml() emits the *GML.h headers into this target's binary dir; the
++# sources include them as <Applications/PixelPaint/...>, so expose the binary
++# Userland root (two levels up from here) as an include path.
++target_include_directories(PixelPaint PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/../..)
+diff --git a/Userland/Applications/PixelPaint/Tools/BrushTool.cpp b/Userland/Applications/PixelPaint/Tools/BrushTool.cpp
+index 6d690041..fc5c3242 100644
+@@ -355,7 +355,11 @@
+ NonnullRefPtr<Gfx::Bitmap> BrushTool::build_cursor()
+ {
+     m_scale_last_created_cursor = m_editor ? m_editor->scale() : 1;
+-    auto containing_box_size = AK::clamp(preferred_cursor_size(), 1.0f, max_allowed_cursor_size());
++    // The crosshair below is drawn at centered +/- 5 with a line width of up to 3, so the
++    // cursor box must be large enough to contain it. A small brush (e.g. the size-1 PenTool
++    // default) would otherwise yield a 2x2 bitmap and make draw_line/draw_ellipse write
++    // outside the backing store; floor the size so centered +/- 5 always fits.
++    auto containing_box_size = AK::max(AK::clamp(preferred_cursor_size(), 1.0f, max_allowed_cursor_size()), 16.0f);
+     auto centered = containing_box_size / 2;
+     NonnullRefPtr<Gfx::Bitmap> new_cursor = Gfx::Bitmap::create(Gfx::BitmapFormat::BGRA8888, Gfx::IntSize(containing_box_size, containing_box_size)).release_value_but_fixme_should_propagate_errors();
+ 

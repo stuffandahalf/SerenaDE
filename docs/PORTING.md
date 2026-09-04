@@ -17,7 +17,7 @@ Living tracker. Update in the same commit as the work it describes, and keep
 | ConfigServer / Clipboard           | M4        | partial     | Both build natively now (Clipboard via patch 0007); launcher runs them as services; no SystemServer yet |
 | SystemServer shim + LaunchServer   | M4        | partial     | LaunchServer builds natively (patch 0009) and runs as a Calculator dependency; SystemServer shim still to do |
 | Launcher + resource env            | M4        | partial     | Headless launcher complete (socket takeover, services, screenshot) plus `--x11` mode (writes `Mode=X11`, passes `$DISPLAY` through) and `--home <dir>` (sets `$HOME` for spawned apps); SystemServer shim still to do |
-| App subset (Terminal, FileManager, Settings, ImageViewer, PixelPaint) | M4 | partial | Terminal + FileManager build & render on host (patches 0013–0018); Terminal via golden test, FileManager via functional `--expect-window` check (its window has host-dependent content, so no portable golden); cross-app copy/paste via clip-copy/clip-paste + launcher `--co-app` (`m4-clipboard-cross-app`). Settings also builds & renders (patch 0023, links only already-built libs) with a deterministic panel-grid golden (`m4-settings`); ImageViewer builds & renders its empty window (patch 0024, wires `LibFileSystemAccessClient` + generated IPC headers into Lagom) with a golden (`m4-imageviewer`) — actually opening an image still needs the FileSystemAccess/ImageDecoder services, not yet wired on host. All 3 M4 exit criteria pass. Only PixelPaint remains (not an exit criterion) |
+ | App subset (Terminal, FileManager, Settings, ImageViewer, PixelPaint) | M4 | done | All five build & render on host: Terminal + FileManager (patches 0013–0018; Terminal via golden test, FileManager via functional `--expect-window` check since its window has host-dependent content); cross-app copy/paste via clip-copy/clip-paste + launcher `--co-app` (`m4-clipboard-cross-app`); Settings (patch 0023, links only already-built libs) with a panel-grid golden (`m4-settings`); ImageViewer (patch 0024, wires `LibFileSystemAccessClient` + generated IPC headers into Lagom) with an empty-window golden (`m4-imageviewer`); PixelPaint (patch 0025, apps list + GML include path + a latent `build_cursor` OOB-write fix) with an empty-document golden (`m4-pixelpaint`). All 3 M4 exit criteria pass. Note: ImageViewer/PixelPaint render their empty state on host; actually opening/decoding images still needs the FileSystemAccess/ImageDecoder services, not yet wired (an M6-adjacent task, not an M4 exit criterion) |
 | Taskbar / desktop UI               | M4        | done        | Real Serenity Taskbar builds under Lagom (patches 0019–0021: heavy `<WindowServer/Window.h>` include swapped for a light `WMEventMask.h`; `$SERENADE_APP_DIR` app-dir override so the dock lists apps with real executables; `Process::spawn` working-dir via portable `..._np` chdir). Launch-from-desktop proven two ways: `m4-launch-terminal` (LaunchServer IPC) and `m4-taskbar-launch` (scripted click on the Terminal quick-launch dock icon → the Taskbar's own spawn path opens a real window) |
 | FreeBSD support                    | M5        | not started | X-input path only; no evdev anywhere |
 | NetworkServer / AudioServer shims  | M6        | not started | Unblocks Browser/Mail/games |
@@ -26,6 +26,22 @@ Living tracker. Update in the same commit as the work it describes, and keep
 
 Record discoveries here as they happen (surprising `#ifdef` gaps, API quirks,
  decisions with trade-offs). Newest first.
+
+ - 2026-09-04 — **M4: the PixelPaint app builds and renders on host (patch 0025) — last M4 app.**
+   All five link dependencies already build on host (LibFileSystemAccessClient came in with patch
+   0024; LibThreading is in `lagom_standard_libraries`), so the CMake work is: add PixelPaint to the
+   host applications list, drop the non-buildable `DEPENDS ImageDecoder FileSystemAccessServer`
+   component hint (same as ImageViewer), and expose the binary Userland root as an include path so the
+   `stringify_gml()`-generated `*GML.h` headers (included as `<Applications/PixelPaint/...>`) resolve —
+   the same fix FileManager needed in patch 0017. Building it exposed a **latent out-of-bounds write**:
+   `BrushTool::build_cursor()` draws a crosshair at `centered +/- 5` (line width up to 3) onto a cursor
+   bitmap sized from the brush; the size-1 `PenTool` default makes that a 2x2 bitmap, so the crosshair
+   writes past the backing store. Benign under SerenityOS's allocator but fatal under glibc
+   (`malloc(): invalid size (unsorted)`), which is why the window rendered as a sliver and aborted.
+   Valgrind pinpointed it; the fix floors the cursor box to 16px so `centered +/- 5` always fits. Launched
+   with no file argument PixelPaint renders its default empty document (toolbox, transparent canvas, layer
+   list, palette) deterministically without a running FileSystemAccessServer; `m4-pixelpaint` golden-covers
+   it via a driver script that gives a fresh per-run `$HOME` (PixelPaint restores/saves window placement).
 
  - 2026-09-04 — **M4: the ImageViewer app builds and renders on host (patch 0024).** Unlike
    Settings, ImageViewer links `LibFileSystemAccessClient`, which is not in

@@ -6,7 +6,7 @@ using **X11** for display and input.
 
 This repo is a *shim*: it contains only the platform-specific glue (X11 screen
 and input backends, host service shims, launcher, tests, CI) plus a minimal
-tracked patch set (24 patches) applied to a pinned
+tracked patch set (25 patches) applied to a pinned
 [Serenity](https://github.com/SerenityOS/serenity) source tree, which is built
 with its official host-build system, Lagom.
 
@@ -21,7 +21,7 @@ dock. See [`AGENTS.md`](AGENTS.md) for architecture + the milestone plan, and
   real **X11** one (`Mode=X11`, `XPutImage` blit, optional zero-copy/`XShm`).
 - **Services** as plain-UDS IPC servers: ConfigServer, Clipboard, LaunchServer.
 - **Apps** built via Lagom and rendering real content: AnalogClock, Calculator,
-  About, Terminal, FileManager, Settings, ImageViewer.
+  About, Terminal, FileManager, Settings, ImageViewer, PixelPaint.
 - **Taskbar / desktop UI**: the real Serenity Taskbar (dock + system menu) builds
   on host; a click on a dock icon launches that app through the Taskbar's own
   spawn path.
@@ -29,7 +29,7 @@ dock. See [`AGENTS.md`](AGENTS.md) for architecture + the milestone plan, and
 
 Two run modes: **headless** (virtual screen, screenshot to PNG — used by the test
 suite) and **X11** (`--x11`, against Xvfb or a real display). The full serial ctest
-suite (golden + functional tests) is green at **249/249**.
+suite (golden + functional tests) is green at **250/250**.
 
 ## Quick start
 

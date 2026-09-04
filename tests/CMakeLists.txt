@@ -144,6 +144,26 @@ add_test(NAME m4-imageviewer
         $<TARGET_FILE:ImageViewer>)
 set_tests_properties(m4-imageviewer PROPERTIES TIMEOUT 90)
 
+# PixelPaint launched with no file argument renders its default (empty) document -- toolbox,
+# a transparent canvas, layer list, palette and statusbar -- and never calls
+# FileSystemAccessClient::the(), so no FileSystemAccessServer is needed at runtime. The driver
+# script gives it a fresh per-run $HOME because PixelPaint restores/saves its window
+# size+position from config (keeping placement deterministic); the render has no host-dependent
+# content, so it is golden-able like Settings/ImageViewer.
+add_test(NAME m4-pixelpaint
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/pixelpaint-empty.sh
+        $<TARGET_FILE:serenade-launcher>
+        ${SERENITY_SOURCE_DIR}/Base/res
+        ${CMAKE_CURRENT_BINARY_DIR}/m4-pixelpaint.png
+        ${CMAKE_CURRENT_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/golden/pixelpaint.png
+        $<TARGET_FILE:WindowServer>
+        $<TARGET_FILE:PixelPaint>
+        $<TARGET_FILE:ConfigServer>
+        $<TARGET_FILE:Clipboard>
+        $<TARGET_FILE:LaunchServer>)
+set_tests_properties(m4-pixelpaint PROPERTIES TIMEOUT 90)
+
 # FileManager opens a controlled Documents directory and renders its listing over
 # the real host filesystem. The driver script (scripts/filemanager-docs.sh) builds
 # that directory with known contents and pinned mtimes, then launches FileManager on
