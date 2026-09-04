@@ -1,0 +1,62 @@
+From fc5c303c3fee37b37f9f2289125942ff052f8c41 Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory@serenade.local>
+Date: Fri, 04 Sep 2026 00:00:00 +0000
+Subject: [PATCH 24/24] Lagom: Build the ImageViewer app on host systems
+
+ImageViewer links LibFileSystemAccessClient, which is not part of
+lagom_standard_libraries and depends on the WindowServer target (built in
+the Services subdirectory). So the FileSystemAccess IPC endpoint headers
+are generated with compile_ipc near the top, LibFileSystemAccessClient is
+added after the Services subdirectory (so WindowServer exists), and
+ImageViewer is added to the host applications list. The component-level
+'DEPENDS ImageDecoder' build-ordering hint is dropped because that service
+component is not built on host; the app's real dependency, LibImageDecoder
+Client, does build. m4-imageviewer covers it with a golden of the empty
+window (no file argument -> no FileSystemAccessServer needed at runtime).
+
+diff --git a/Meta/Lagom/CMakeLists.txt b/Meta/Lagom/CMakeLists.txt
+index 9d6bda32..60e399b3 100644
+@@ -533,6 +533,10 @@
+     compile_ipc(${SERENITY_PROJECT_ROOT}/Userland/Services/RequestServer/RequestClient.ipc Userland/Services/RequestServer/RequestClientEndpoint.h)
+     compile_ipc(${SERENITY_PROJECT_ROOT}/Userland/Services/RequestServer/RequestServer.ipc Userland/Services/RequestServer/RequestServerEndpoint.h)
+ 
++    # Needed by LibFileSystemAccessClient (and thus the ImageViewer app).
++    compile_ipc(${SERENITY_PROJECT_ROOT}/Userland/Services/FileSystemAccessServer/FileSystemAccessClient.ipc Userland/Services/FileSystemAccessServer/FileSystemAccessClientEndpoint.h)
++    compile_ipc(${SERENITY_PROJECT_ROOT}/Userland/Services/FileSystemAccessServer/FileSystemAccessServer.ipc Userland/Services/FileSystemAccessServer/FileSystemAccessServerEndpoint.h)
++
+     if (ENABLE_LAGOM_LIBWEB)
+         list(APPEND lagom_standard_libraries Web WebView)
+ 
+@@ -561,11 +565,18 @@
+         # Lagom Services
+         add_serenity_subdirectory(Userland/Services)
+ 
++        # LibFileSystemAccessClient depends on the WindowServer target (built in
++        # the Services subdirectory above), so it is added here rather than to
++        # lagom_standard_libraries. Its generated endpoint headers are produced by
++        # the compile_ipc calls near the top of this file.
++        add_serenity_subdirectory(Userland/Libraries/LibFileSystemAccessClient)
++
+         # Applications that build unmodified on host systems.
+         add_serenity_subdirectory(Userland/Applications/About)
+         add_serenity_subdirectory(Userland/Applications/AnalogClock)
+         add_serenity_subdirectory(Userland/Applications/Calculator)
+         add_serenity_subdirectory(Userland/Applications/FileManager)
++        add_serenity_subdirectory(Userland/Applications/ImageViewer)
+         add_serenity_subdirectory(Userland/Applications/Settings)
+         add_serenity_subdirectory(Userland/Applications/Terminal)
+ 
+diff --git a/Userland/Applications/ImageViewer/CMakeLists.txt b/Userland/Applications/ImageViewer/CMakeLists.txt
+index 6795f92d..bb6e39ea 100644
+@@ -1,8 +1,10 @@
++# The ImageDecoder service component is not built on host systems, so the
++# component-level build-ordering dependency on it is dropped here. The app's
++# real dependency is LibImageDecoderClient (linked below), which does build.
+ serenity_component(
+     ImageViewer
+     RECOMMENDED
+     TARGETS ImageViewer
+-    DEPENDS ImageDecoder
+ )
+ 
+ set(SOURCES

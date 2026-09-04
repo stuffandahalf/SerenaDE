@@ -125,6 +125,25 @@ add_test(NAME m4-settings
         $<TARGET_FILE:Settings>)
 set_tests_properties(m4-settings PROPERTIES TIMEOUT 90)
 
+# ImageViewer launched with no file argument renders its empty window (title bar,
+# full toolbar, blank view area) and never calls FileSystemAccessClient::the(), so
+# no FileSystemAccessServer is needed at runtime -- only the standard config/launch/
+# clipboard services. The render has no host-dependent content (no clock, directory
+# listing, or timezone), so it is deterministic and golden-able like Settings.
+add_test(NAME m4-imageviewer
+    COMMAND serenade-launcher
+        --res ${SERENITY_SOURCE_DIR}/Base/res
+        --screenshot ${CMAKE_CURRENT_BINARY_DIR}/m4-imageviewer.png
+        --delay 6000
+        --log-dir ${CMAKE_CURRENT_BINARY_DIR}
+        --service /tmp/session/0/portal/config=$<TARGET_FILE:ConfigServer>
+        --service /tmp/session/0/portal/clipboard=$<TARGET_FILE:Clipboard>
+        --service /tmp/session/0/portal/launch=$<TARGET_FILE:LaunchServer>
+        --golden ${CMAKE_CURRENT_SOURCE_DIR}/golden/imageviewer.png
+        $<TARGET_FILE:WindowServer>
+        $<TARGET_FILE:ImageViewer>)
+set_tests_properties(m4-imageviewer PROPERTIES TIMEOUT 90)
+
 # FileManager opens a controlled Documents directory and renders its listing over
 # the real host filesystem. The driver script (scripts/filemanager-docs.sh) builds
 # that directory with known contents and pinned mtimes, then launches FileManager on

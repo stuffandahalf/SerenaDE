@@ -271,11 +271,16 @@ third `ScreenBackend`, no compositor changes). All Xlib stays in SerenaDE's
    applets, and its disconnect used to crash WindowServer (timing-dependent: post-screenshot
    locally, pre-screenshot on CI). A scripted click
    on the Terminal quick-launch dock icon launches the built Terminal through the Taskbar's
-    own spawn path (`m4-taskbar-launch`, functional `--expect-window`). The **Settings** app
-    also builds and renders on host now (patch 0023 — it links only already-built Lagom libs,
-    so no portability changes); it shows its panel grid deterministically from the pinned
-    `/res/apps`, covered by a golden test (`m4-settings`). Full serial ctest is **248/248**.
-    Remaining M4 task items (not exit criteria): ImageViewer/PixelPaint. See `docs/PORTING.md`.
+     own spawn path (`m4-taskbar-launch`, functional `--expect-window`). The **Settings** app
+     also builds and renders on host now (patch 0023 — it links only already-built Lagom libs,
+     so no portability changes); it shows its panel grid deterministically from the pinned
+     `/res/apps`, covered by a golden test (`m4-settings`). The **ImageViewer** app builds and
+     renders on host too (patch 0024 — wired `LibFileSystemAccessClient` + its generated IPC
+     endpoint headers into Lagom, added after the Services subdir since it depends on the
+     WindowServer target); launched with no file argument it shows its empty window deterministically
+     without needing a running FileSystemAccessServer, covered by a golden test (`m4-imageviewer`).
+     Full serial ctest is **249/249**. Remaining M4 task item (not an exit criterion): PixelPaint.
+     See `docs/PORTING.md`.
 
 ## Patch workflow
 

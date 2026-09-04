@@ -17,7 +17,7 @@ Living tracker. Update in the same commit as the work it describes, and keep
 | ConfigServer / Clipboard           | M4        | partial     | Both build natively now (Clipboard via patch 0007); launcher runs them as services; no SystemServer yet |
 | SystemServer shim + LaunchServer   | M4        | partial     | LaunchServer builds natively (patch 0009) and runs as a Calculator dependency; SystemServer shim still to do |
 | Launcher + resource env            | M4        | partial     | Headless launcher complete (socket takeover, services, screenshot) plus `--x11` mode (writes `Mode=X11`, passes `$DISPLAY` through) and `--home <dir>` (sets `$HOME` for spawned apps); SystemServer shim still to do |
-| App subset (Terminal, FileManager, Settings, ImageViewer, PixelPaint) | M4 | partial | Terminal + FileManager build & render on host (patches 0013–0018); Terminal via golden test, FileManager via functional `--expect-window` check (its window has host-dependent content, so no portable golden); cross-app copy/paste via clip-copy/clip-paste + launcher `--co-app` (`m4-clipboard-cross-app`). Settings also builds & renders (patch 0023, links only already-built libs) with a deterministic panel-grid golden (`m4-settings`). All 3 M4 exit criteria pass. ImageViewer/PixelPaint not started (ImageViewer needs the FileSystemAccess/ImageDecoder client + service wiring) |
+| App subset (Terminal, FileManager, Settings, ImageViewer, PixelPaint) | M4 | partial | Terminal + FileManager build & render on host (patches 0013–0018); Terminal via golden test, FileManager via functional `--expect-window` check (its window has host-dependent content, so no portable golden); cross-app copy/paste via clip-copy/clip-paste + launcher `--co-app` (`m4-clipboard-cross-app`). Settings also builds & renders (patch 0023, links only already-built libs) with a deterministic panel-grid golden (`m4-settings`); ImageViewer builds & renders its empty window (patch 0024, wires `LibFileSystemAccessClient` + generated IPC headers into Lagom) with a golden (`m4-imageviewer`) — actually opening an image still needs the FileSystemAccess/ImageDecoder services, not yet wired on host. All 3 M4 exit criteria pass. Only PixelPaint remains (not an exit criterion) |
 | Taskbar / desktop UI               | M4        | done        | Real Serenity Taskbar builds under Lagom (patches 0019–0021: heavy `<WindowServer/Window.h>` include swapped for a light `WMEventMask.h`; `$SERENADE_APP_DIR` app-dir override so the dock lists apps with real executables; `Process::spawn` working-dir via portable `..._np` chdir). Launch-from-desktop proven two ways: `m4-launch-terminal` (LaunchServer IPC) and `m4-taskbar-launch` (scripted click on the Terminal quick-launch dock icon → the Taskbar's own spawn path opens a real window) |
 | FreeBSD support                    | M5        | not started | X-input path only; no evdev anywhere |
 | NetworkServer / AudioServer shims  | M6        | not started | Unblocks Browser/Mail/games |
@@ -25,7 +25,25 @@ Living tracker. Update in the same commit as the work it describes, and keep
 ## Porting log
 
 Record discoveries here as they happen (surprising `#ifdef` gaps, API quirks,
-decisions with trade-offs). Newest first.
+ decisions with trade-offs). Newest first.
+
+ - 2026-09-04 — **M4: the ImageViewer app builds and renders on host (patch 0024).** Unlike
+   Settings, ImageViewer links `LibFileSystemAccessClient`, which is not in
+   `lagom_standard_libraries` and carries `add_dependencies(... WindowServer)`. So patch 0024
+   generates the two FileSystemAccess IPC endpoint headers with `compile_ipc` near the top of
+   `Meta/Lagom/CMakeLists.txt` (mirroring the RequestServer pattern), adds
+   `LibFileSystemAccessClient` as a subdirectory *after* `Userland/Services` (so the WindowServer
+   target it depends on already exists — hence not in the standard-libraries foreach, which runs
+   earlier), and adds ImageViewer to the host applications list. The app's `serenity_component`
+   `DEPENDS ImageDecoder` build-ordering hint is dropped because that service component is not
+   built on host; the real dependency, `LibImageDecoderClient`, does build. Launched with **no file
+   argument** it renders its empty window (title bar + full toolbar + blank view area) and never
+   calls `FileSystemAccessClient::the()`, so no running FileSystemAccessServer is needed at runtime
+   — only the standard config/launch/clipboard services. The render has no host-dependent content,
+   three local renders are byte-identical, so `m4-imageviewer` uses a golden test (like Settings).
+   Note: actually *opening* an image still routes through the FileSystemAccess portal (and decoding
+   through the ImageDecoder service), which is not yet wired on host — this milestone covers the app
+   building and rendering its empty window, not loading images.
 
  - 2026-09-03 — **M4: the Settings app builds and renders on host (patch 0023).** Settings
    is the icon grid of per-area settings panels. It links only already-built Lagom libraries
