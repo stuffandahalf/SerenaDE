@@ -284,8 +284,18 @@ third `ScreenBackend`, no compositor changes). All Xlib stays in SerenaDE's
       out-of-bounds write in `BrushTool::build_cursor` for small brushes, fixed by flooring the cursor
       box); launched with no file argument it shows its empty document deterministically, covered by a
       golden test (`m4-pixelpaint`, fresh per-run `$HOME` since it restores/saves window placement).
-      All five M4 apps (Terminal, FileManager, Settings, ImageViewer, PixelPaint) now build and render.
-      Full serial ctest is **250/250**. See `docs/PORTING.md`.
+       All five M4 apps (Terminal, FileManager, Settings, ImageViewer, PixelPaint) now build and render.
+       Full serial ctest is **250/250**. See `docs/PORTING.md`.
+
+**M5 — in progress (2026-09-04).** FreeBSD support + polish. A portability audit of the shim
+(`src/`) found it already BSD-clean (only X11/XShm, both portable; no evdev/epoll//proc). The audit of
+the patch set found one real FreeBSD blocker: `posix_spawn_file_actions_addchdir_np` (patch 0021's host
+path) is a glibc extension absent from BSD libcs, so it breaks the FreeBSD build. Patch 0026 gates that
+chdir file action to Serenity/glibc and adds a portable fork/chdir/exec fallback for other hosts (a
+compile-time flag keeps glibc behavior byte-identical while the fallback is syntax-checked on Linux); the
+fallback was validated end-to-end by forcing it on and re-running the cwd-spawn launch tests. The FreeBSD
+CI job remains commented out pending a self-hosted runner (GitHub has no hosted FreeBSD). Remaining M5:
+the polish items (DPI/scale, cursor themes, focus) and wiring the FreeBSD CI job once a runner exists.
 
 ## Patch workflow
 

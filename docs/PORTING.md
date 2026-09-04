@@ -19,13 +19,34 @@ Living tracker. Update in the same commit as the work it describes, and keep
 | Launcher + resource env            | M4        | partial     | Headless launcher complete (socket takeover, services, screenshot) plus `--x11` mode (writes `Mode=X11`, passes `$DISPLAY` through) and `--home <dir>` (sets `$HOME` for spawned apps); SystemServer shim still to do |
  | App subset (Terminal, FileManager, Settings, ImageViewer, PixelPaint) | M4 | done | All five build & render on host: Terminal + FileManager (patches 0013–0018; Terminal via golden test, FileManager via functional `--expect-window` check since its window has host-dependent content); cross-app copy/paste via clip-copy/clip-paste + launcher `--co-app` (`m4-clipboard-cross-app`); Settings (patch 0023, links only already-built libs) with a panel-grid golden (`m4-settings`); ImageViewer (patch 0024, wires `LibFileSystemAccessClient` + generated IPC headers into Lagom) with an empty-window golden (`m4-imageviewer`); PixelPaint (patch 0025, apps list + GML include path + a latent `build_cursor` OOB-write fix) with an empty-document golden (`m4-pixelpaint`). All 3 M4 exit criteria pass. Note: ImageViewer/PixelPaint render their empty state on host; actually opening/decoding images still needs the FileSystemAccess/ImageDecoder services, not yet wired (an M6-adjacent task, not an M4 exit criterion) |
 | Taskbar / desktop UI               | M4        | done        | Real Serenity Taskbar builds under Lagom (patches 0019–0021: heavy `<WindowServer/Window.h>` include swapped for a light `WMEventMask.h`; `$SERENADE_APP_DIR` app-dir override so the dock lists apps with real executables; `Process::spawn` working-dir via portable `..._np` chdir). Launch-from-desktop proven two ways: `m4-launch-terminal` (LaunchServer IPC) and `m4-taskbar-launch` (scripted click on the Terminal quick-launch dock icon → the Taskbar's own spawn path opens a real window) |
-| FreeBSD support                    | M5        | not started | X-input path only; no evdev anywhere |
+ | FreeBSD support                    | M5        | in progress | Shim is already BSD-clean (X11/XShm only; no evdev/epoll//proc). Portability audit of the patch set found + fixed one real blocker: `posix_spawn_file_actions_addchdir_np` is glibc-only, so patch 0026 gates it to Serenity/glibc and adds a portable fork/chdir/exec fallback for BSDs/musl. CI job still commented out pending a self-hosted FreeBSD runner (GitHub has none) |
 | NetworkServer / AudioServer shims  | M6        | not started | Unblocks Browser/Mail/games |
 
 ## Porting log
 
 Record discoveries here as they happen (surprising `#ifdef` gaps, API quirks,
  decisions with trade-offs). Newest first.
+
+ - 2026-09-04 — **M5: FreeBSD portability audit + the spawn working-directory fix (patch 0026).**
+   Audited the shim (`src/`) for non-POSIX/glibc/Linux drift: it is already BSD-clean — the X11 backend
+   uses only Xlib/XShm (both available on BSDs), and the launcher uses standard fork/execv/dup2/AF_UNIX
+   sockets/waitpid/sigaction. No evdev, epoll, eventfd, SO_PEERCRED or /proc anywhere. The patch set had
+   one real FreeBSD blocker: `posix_spawn_file_actions_addchdir_np` (patch 0021's host path, and the
+   `SERENADE_SPAWN_ADDCHDIR` macro in patch 0018) is a **glibc extension**, not POSIX — BSD libcs ship only
+   the three standard spawn actions (`addopen`/`addclose`/`adddup2`), so it fails to compile on FreeBSD.
+   (Upstream Serenity leaves this case as `TODO()` for non-Serenity hosts; Process.cpp already carries
+   `AK_OS_FREEBSD`/`AK_OS_BSD_GENERIC` guards, so LibCore is meant to build on BSDs.) Patch 0026 gates the
+   chdir file action to Serenity/glibc (`__GLIBC__`) and, on other hosts, applies the working directory with
+   a portable fork/chdir/exec fallback. The gate is a compile-time constant so the fallback compiles on every
+   platform (syntax-checked by the Linux build) but only *runs* off-glibc — glibc behavior stays byte-identical.
+   Validated by temporarily forcing the flag off and re-running `m4-taskbar-launch`/`m4-launch-terminal`
+   (the cwd-spawn path), which passed through the fork/chdir/exec route. **Remaining FreeBSD blocker:**
+   FileManager's launch handler (`DirectoryView.cpp`, from patch 0018) does its own raw `posix_spawn` with
+   two glibc-assuming features — the `SERENADE_SPAWN_ADDCHDIR` macro (still hard-codes `_np`) and
+   `posix_spawnattr_setpgroup`/`POSIX_SPAWN_SETPGROUP` (a Serenity-LibC feature; availability in BSD libcs
+   is unverified). Since it is one translation unit, either missing symbol fails the whole FileManager build
+   on FreeBSD. Fixing it portably needs a BSD to verify against (the setpgroup behavior in particular), so it
+   is deferred until the self-hosted FreeBSD runner exists rather than shipped speculatively.
 
  - 2026-09-04 — **M4: the PixelPaint app builds and renders on host (patch 0025) — last M4 app.**
    All five link dependencies already build on host (LibFileSystemAccessClient came in with patch

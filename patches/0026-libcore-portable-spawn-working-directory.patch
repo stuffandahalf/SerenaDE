@@ -1,0 +1,74 @@
+From e68d4afe53563655ef58a62d750e6b4ae3085b08 Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory@serenade.local>
+Date: Fri, 04 Sep 2026 00:00:00 +0000
+Subject: [PATCH 26/26] LibCore: Set spawn working directory portably on non-glibc hosts
+
+posix_spawn_file_actions_addchdir_np (used by patch 0021 for the host path) is a
+glibc extension, not part of POSIX and absent from BSD libcs, so it breaks the
+FreeBSD build. Gate the chdir file action to Serenity/glibc, and on other hosts (BSDs,
+musl) apply the working directory with a portable fork/chdir/exec fallback. The flag is
+a compile-time constant so the fallback compiles everywhere (syntax-checked on Linux) but
+only runs off-glibc, leaving glibc behavior unchanged. No caller combines a working
+directory with file_actions, so the fallback needs no action replay. This is the M5
+FreeBSD portability fix for the spawn path.
+
+diff --git a/Userland/Libraries/LibCore/Process.cpp b/Userland/Libraries/LibCore/Process.cpp
+index c4bd41b6..197777b0 100644
+@@ -38,6 +38,16 @@
+ #    include <sys/user.h>
+ #endif
+ 
++// Whether posix_spawn can set the child's working directory via a file action. Serenity has
++// its own addchdir; glibc exposes it as the non-standard ..._np spelling. BSDs and musl have
++// neither, so on those hosts the working directory is applied with a fork/chdir/exec fallback
++// instead (see Process::spawn).
++#if defined(AK_OS_SERENITY) || defined(__GLIBC__)
++static bool const s_posix_spawn_has_chdir_action = true;
++#else
++static bool const s_posix_spawn_has_chdir_action = false;
++#endif
++
+ namespace Core {
+ 
+ struct ArgvList {
+@@ -76,11 +86,11 @@
+         posix_spawn_file_actions_destroy(&spawn_actions);
+     };
+ 
+-    if (options.working_directory.has_value()) {
++    if (options.working_directory.has_value() && s_posix_spawn_has_chdir_action) {
+ #ifdef AK_OS_SERENITY
+         CHECK(posix_spawn_file_actions_addchdir(&spawn_actions, options.working_directory->characters()));
+-#else
+-        // Hosts expose the portable _np spelling of the chdir file action (glibc >= 2.24).
++#elif defined(__GLIBC__)
++        // glibc exposes the non-standard chdir file action under the _np name.
+         CHECK(posix_spawn_file_actions_addchdir_np(&spawn_actions, options.working_directory->characters()));
+ #endif
+     }
+@@ -113,6 +123,25 @@
+         argv_list.append(argument.characters());
+ 
+     pid_t pid;
++    if (!s_posix_spawn_has_chdir_action && options.working_directory.has_value()) {
++        // No posix_spawn chdir file action on this host (BSDs, musl): set the working
++        // directory portably by forking, chdir'ing in the child, then exec'ing. No caller
++        // combines a working directory with file_actions, so none need replaying here.
++        pid_t child = fork();
++        if (child < 0)
++            return Error::from_errno(errno);
++        if (child == 0) {
++            if (chdir(options.working_directory->characters()) != 0)
++                _exit(127);
++            char* const* argv = const_cast<char**>(argv_list.get().data());
++            if (options.search_for_executable_in_path)
++                execvp(options.executable.characters(), argv);
++            else
++                execv(options.executable.characters(), argv);
++            _exit(127); // exec failed
++        }
++        return Process { child };
++    }
+     if (options.search_for_executable_in_path) {
+         pid = TRY(System::posix_spawnp(options.executable.view(), &spawn_actions, nullptr, const_cast<char**>(argv_list.get().data()), Core::Environment::raw_environ()));
+     } else {
