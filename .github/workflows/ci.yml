@@ -54,42 +54,37 @@ jobs:
       - name: Test
         run: ctest --test-dir Build --output-on-failure
 
-  # M5 FreeBSD job. GitHub has no hosted FreeBSD runner, so this targets a
-  # self-hosted one and is gated by the repo variable FREEBSD_CI_ENABLED (default off):
-  # it stays inert until a [self-hosted, freebsd] runner is provisioned AND the variable
-  # is set to "true" in the repo settings -- otherwise every push would queue forever
-  # waiting for a runner that does not exist. By design this codebase has no evdev or other
-  # Linux-only input path, so the same sources must configure and build here unchanged; the
-  # only platform-specific portability fixes live in patches/ (see docs/PORTING.md).
-  # Package names/versions below are for a recent FreeBSD (13/14) and may need adjusting per
-  # release; the Serenity pin needs a recent Clang (>= 22 on Linux), so install one if the
-  # base clang is too old.
+  # M5 FreeBSD job. Uses vmactions/freebsd-vm to boot a real FreeBSD VM (QEMU) inside a
+  # normal hosted ubuntu-latest runner -- so NO self-hosted FreeBSD machine is needed. The
+  # SerenaDE workspace is synced into the VM; the pinned Serenity source is fetched inside the
+  # VM (a shallow fetch of the exact commit) to keep that sync small. By design this codebase
+  # has no evdev or other Linux-only input path, so the same sources must build here unchanged;
+  # the platform-specific fixes live in patches/ (see docs/PORTING.md). KNOWN RISK: the Serenity
+  # pin requires C++26 (CMAKE_CXX_STANDARD 26, -Werror), which on Linux needs Clang 22 -- if the
+  # VM's base clang is too old you'll see C++26 compile errors; then install a newer one in
+  # `prepare` (pkg install -y llvmNN) and change the compiler to clangNN/clang++NN below.
   build-freebsd:
-    runs-on: [self-hosted, freebsd]
-    if: ${{ vars.FREEBSD_CI_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      # Keep in sync with cmake/FetchSerenity.cmake (SERENITY_PINNED_REF).
-      - name: Checkout pinned Serenity
-        uses: actions/checkout@v4
+      - name: Build + test in a real FreeBSD VM
+        uses: vmactions/freebsd-vm@v1
         with:
-          repository: SerenityOS/serenity
-          ref: 7784b1f535a431635443e04d37a9e279ddb9b8eb
-          path: deps/serenity
-
-      - name: Install dependencies
-        run: |
-          pkg install -y cmake ninja git llvm18 libX11
-
-      - name: Configure
-        run: >
-          cmake -B Build -G Ninja
-          -DCMAKE_C_COMPILER=clang18 -DCMAKE_CXX_COMPILER=clang++18
-          -DSERENITY_SOURCE_DIR=${{ github.workspace }}/deps/serenity
-
-      - name: Build
-        run: cmake --build Build
-
-      - name: Test
-        run: ctest --test-dir Build --output-on-failure
+          release: "15" # newest stable line; gives the best shot at a recent-enough clang for C++26
+          prepare: |
+            pkg install -y cmake ninja git curl ca_root_nss libX11 libXext
+          run: |
+            set -e
+            # Fetch the pinned Serenity source inside the VM (keep in sync with
+            # cmake/FetchSerenity.cmake / SERENITY_PINNED_REF). A shallow fetch of the exact
+            # commit is fast and avoids syncing the whole tree from the host.
+            rm -rf deps/serenity && git init -q deps/serenity
+            git -C deps/serenity remote add origin https://github.com/SerenityOS/serenity.git
+            git -C deps/serenity fetch --depth 1 --quiet origin 7784b1f535a431635443e04d37a9e279ddb9b8eb
+            git -C deps/serenity checkout -q FETCH_HEAD
+            cmake -B Build -G Ninja \
+              -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+              -DSERENITY_SOURCE_DIR="$GITHUB_WORKSPACE/deps/serenity"
+            cmake --build Build
+            ctest --test-dir Build --output-on-failure

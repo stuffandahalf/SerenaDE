@@ -1,0 +1,41 @@
+From a05dbd3dd4f06de990720abac635b63a479296a1 Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory@serenade.local>
+Date: Fri, 04 Sep 2026 00:00:00 +0000
+Subject: [PATCH 27/27] FileManager: Make the launch spawn portable on non-glibc hosts
+
+DirectoryView::launch() does its own raw posix_spawn with two glibc-assuming features:
+the SERENADE_SPAWN_ADDCHDIR macro (still ..._np off-Serenity) and the setpgroup spawn
+attribute (posix_spawnattr_setpgroup / POSIX_SPAWN_SETPGROUP, a Serenity-LibC feature).
+Neither is guaranteed in BSD libcs, so as one translation unit either missing symbol fails
+the whole FileManager build on FreeBSD. Gate both to Serenity/glibc; on other hosts the
+spawn simply omits the process-group attribute and the chdir action (the app opens in the
+inherited working directory) -- a functional degradation, but it compiles and runs.
+glibc behavior is unchanged. This clears the last known FreeBSD build blocker for the M4
+app subset; verifying it needs the FreeBSD CI job (vmactions/freebsd-vm).
+
+diff --git a/Userland/Applications/FileManager/DirectoryView.cpp b/Userland/Applications/FileManager/DirectoryView.cpp
+index bc6501ab..a396578d 100644
+@@ -510,16 +510,23 @@
+     posix_spawnattr_t spawn_attributes;
+     posix_spawnattr_init(&spawn_attributes);
+ 
++#if defined(AK_OS_SERENITY) || defined(__GLIBC__)
++    // Give the launched app its own process group. Serenity and glibc support the setpgroup
++    // spawn attribute; BSD libcs do not, so it is skipped there (the child shares our pgroup).
+     posix_spawnattr_setpgroup(&spawn_attributes, getsid(0));
+ 
+     short current_flag;
+     posix_spawnattr_getflags(&spawn_attributes, &current_flag);
+     posix_spawnattr_setflags(&spawn_attributes, static_cast<short>(current_flag | POSIX_SPAWN_SETPGROUP));
++#endif
+ 
+     if (launcher_handler.details().launcher_type == Desktop::Launcher::LauncherType::Application) {
+         posix_spawn_file_actions_t spawn_actions;
+         posix_spawn_file_actions_init(&spawn_actions);
++#if defined(AK_OS_SERENITY) || defined(__GLIBC__)
++        // Open the app in this directory (glibc spells it ..._np; Serenity has its own name).
+         SERENADE_SPAWN_ADDCHDIR(&spawn_actions, path().characters());
++#endif
+ 
+         Vector<char const*, 2> argv;
+         argv.append(launcher_handler.details().name.characters());

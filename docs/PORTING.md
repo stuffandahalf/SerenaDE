@@ -19,13 +19,26 @@ Living tracker. Update in the same commit as the work it describes, and keep
 | Launcher + resource env            | M4        | partial     | Headless launcher complete (socket takeover, services, screenshot) plus `--x11` mode (writes `Mode=X11`, passes `$DISPLAY` through) and `--home <dir>` (sets `$HOME` for spawned apps); SystemServer shim still to do |
  | App subset (Terminal, FileManager, Settings, ImageViewer, PixelPaint) | M4 | done | All five build & render on host: Terminal + FileManager (patches 0013–0018; Terminal via golden test, FileManager via functional `--expect-window` check since its window has host-dependent content); cross-app copy/paste via clip-copy/clip-paste + launcher `--co-app` (`m4-clipboard-cross-app`); Settings (patch 0023, links only already-built libs) with a panel-grid golden (`m4-settings`); ImageViewer (patch 0024, wires `LibFileSystemAccessClient` + generated IPC headers into Lagom) with an empty-window golden (`m4-imageviewer`); PixelPaint (patch 0025, apps list + GML include path + a latent `build_cursor` OOB-write fix) with an empty-document golden (`m4-pixelpaint`). All 3 M4 exit criteria pass. Note: ImageViewer/PixelPaint render their empty state on host; actually opening/decoding images still needs the FileSystemAccess/ImageDecoder services, not yet wired (an M6-adjacent task, not an M4 exit criterion) |
 | Taskbar / desktop UI               | M4        | done        | Real Serenity Taskbar builds under Lagom (patches 0019–0021: heavy `<WindowServer/Window.h>` include swapped for a light `WMEventMask.h`; `$SERENADE_APP_DIR` app-dir override so the dock lists apps with real executables; `Process::spawn` working-dir via portable `..._np` chdir). Launch-from-desktop proven two ways: `m4-launch-terminal` (LaunchServer IPC) and `m4-taskbar-launch` (scripted click on the Terminal quick-launch dock icon → the Taskbar's own spawn path opens a real window) |
- | FreeBSD support                    | M5        | in progress | Shim is already BSD-clean (X11/XShm only; no evdev/epoll//proc). Portability audit of the patch set found + fixed one real blocker: `posix_spawn_file_actions_addchdir_np` is glibc-only, so patch 0026 gates it to Serenity/glibc and adds a portable fork/chdir/exec fallback for BSDs/musl. A real `build-freebsd` CI job now targets a `[self-hosted, freebsd]` runner, gated by the repo variable `FREEBSD_CI_ENABLED` (default off) so it stays inert until a runner is provisioned (GitHub has no hosted FreeBSD) |
+ | FreeBSD support                    | M5        | in progress | Shim is already BSD-clean (X11/XShm only; no evdev/epoll//proc). Portability audit found + fixed the glibc-only `posix_spawn` features that break the FreeBSD build: patch 0026 (Process::spawn `..._addchdir_np` → Serenity/glibc gate + portable fork/chdir/exec fallback) and patch 0027 (FileManager's raw spawn setpgroup + chdir, gated to Serenity/glibc). The `build-freebsd` CI job boots a real FreeBSD VM via **vmactions/freebsd-vm** on a hosted `ubuntu-latest` runner (no self-hosted machine needed) and fetches the pinned Serenity source in-VM. Open risk: the pin needs C++26 (`CMAKE_CXX_STANDARD 26`, `-Werror`) → may need a newer clang than the VM's base |
 | NetworkServer / AudioServer shims  | M6        | not started | Unblocks Browser/Mail/games |
 
 ## Porting log
 
 Record discoveries here as they happen (surprising `#ifdef` gaps, API quirks,
  decisions with trade-offs). Newest first.
+
+ - 2026-09-04 — **M5: real FreeBSD CI via vmactions/freebsd-vm + FileManager spawn portability (patch 0027).**
+   GitHub has no hosted FreeBSD runner, but `vmactions/freebsd-vm` boots a real FreeBSD VM (QEMU) inside a
+   normal `ubuntu-latest` runner — so no self-hosted machine is needed. The `build-freebsd` job now uses it:
+   check out SerenaDE on the host, then in the VM install deps (`pkg install cmake ninja git curl ca_root_nss
+   libX11 libXext`), shallow-fetch the pinned Serenity commit in-VM (keeps the host→VM sync small), and run
+   configure/build/ctest. Patch 0027 clears the last known FreeBSD build blocker: FileManager's launch handler
+   used two glibc-only `posix_spawn` features (the `..._np` chdir macro + the setpgroup spawn attribute); both
+   are now gated to Serenity/glibc, so on BSDs it degrades to a plain spawn (app opens in the inherited cwd) but
+   still compiles and runs. **Open risk for the first run:** the pin requires C++26 (`CMAKE_CXX_STANDARD 26`,
+   `-Werror`), which on Linux needs Clang 22; if the VM's base clang is older the build fails on C++26 and we
+   bump to a newer `llvmNN` in `prepare`. Also unverified until the job runs: the exact pkg names, the in-VM
+   shallow fetch of the pinned SHA, and whether the headless (Virtual-screen) tests pass inside the VM.
 
  - 2026-09-04 — **M5: FreeBSD portability audit + the spawn working-directory fix (patch 0026).**
    Audited the shim (`src/`) for non-POSIX/glibc/Linux drift: it is already BSD-clean — the X11 backend
@@ -39,14 +52,10 @@ Record discoveries here as they happen (surprising `#ifdef` gaps, API quirks,
    chdir file action to Serenity/glibc (`__GLIBC__`) and, on other hosts, applies the working directory with
    a portable fork/chdir/exec fallback. The gate is a compile-time constant so the fallback compiles on every
    platform (syntax-checked by the Linux build) but only *runs* off-glibc — glibc behavior stays byte-identical.
-   Validated by temporarily forcing the flag off and re-running `m4-taskbar-launch`/`m4-launch-terminal`
-   (the cwd-spawn path), which passed through the fork/chdir/exec route. **Remaining FreeBSD blocker:**
-   FileManager's launch handler (`DirectoryView.cpp`, from patch 0018) does its own raw `posix_spawn` with
-   two glibc-assuming features — the `SERENADE_SPAWN_ADDCHDIR` macro (still hard-codes `_np`) and
-   `posix_spawnattr_setpgroup`/`POSIX_SPAWN_SETPGROUP` (a Serenity-LibC feature; availability in BSD libcs
-   is unverified). Since it is one translation unit, either missing symbol fails the whole FileManager build
-   on FreeBSD. Fixing it portably needs a BSD to verify against (the setpgroup behavior in particular), so it
-   is deferred until the self-hosted FreeBSD runner exists rather than shipped speculatively.
+    Validated by temporarily forcing the flag off and re-running `m4-taskbar-launch`/`m4-launch-terminal`
+    (the cwd-spawn path), which passed through the fork/chdir/exec route. A second glibc-only `posix_spawn`
+    site was found in FileManager's launch handler (`DirectoryView.cpp`, from patch 0018) — its `..._np`
+    macro and setpgroup spawn attribute; fixed by patch 0027 (same Serenity/glibc gating).
 
  - 2026-09-04 — **M4: the PixelPaint app builds and renders on host (patch 0025) — last M4 app.**
    All five link dependencies already build on host (LibFileSystemAccessClient came in with patch
