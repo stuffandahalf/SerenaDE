@@ -836,6 +836,9 @@ int main(int argc, char** argv)
 
     sleep_ms(options.delay_ms);
 
+    // Remove any stale screenshot from an earlier run: WindowServer (re)creates the file
+    // on SIGUSR1, so a pre-existing file must not satisfy wait_for_file below.
+    unlink(options.screenshot_path);
     kill(options.window_server_pid, SIGUSR1);
     bool got_screenshot = wait_for_file(options.screenshot_path, 10000);
 

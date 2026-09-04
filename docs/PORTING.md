@@ -27,7 +27,32 @@ Living tracker. Update in the same commit as the work it describes, and keep
 Record discoveries here as they happen (surprising `#ifdef` gaps, API quirks,
 decisions with trade-offs). Newest first.
 
- - 2026-09-03 — **WindowServer crash on WM-client disconnect (patch 0022).** CI failed
+  - 2026-09-03 — **`m4-taskbar-launch` blank screen on CI: Taskbar aborted on a fresh
+    `$HOME` (no Serenity change).** After patch 0022, CI produced a screenshot again, but it
+    was fully blank (non-bg fraction 0.000 — not even the taskbar's ~3.5% bar). Reproduced
+    locally by running the test with a clean `HOME`: `serenade-app.log` shows
+    `VERIFICATION FAILED: !name.is_empty() at .../LibDesktop/AppFile.cpp:87` — Taskbar died
+    during startup, so nothing was ever mapped. Cause: with no saved quick-launch config,
+    `QuickLaunchWidget::load_entries()` falls back to its built-in defaults (Browser.af,
+    FileManager.af, Terminal.af, TextEditor.af), resolved against `$SERENADE_APP_DIR`. The
+    test's controlled apps dir held only `Terminal.af`, so the other three became *invalid*
+    `AppFile`s, and `add_entries()` → `Config::write_string(..., entry->name(), ...)` →
+    `AppFile::name()` hit its `VERIFY(!name.is_empty())`. The dev machine masked this: a
+    stale `~/.config/Taskbar.ini` (entries pointing at `/res/apps/*.af`, valid via the
+    patch-0010 remap) made `load_entries` take the config branch instead. Two SerenaDE-only
+    fixes: (1) the driver script now creates **all four** default `.af` files in the apps dir
+    (Terminal → real binary; Browser/FileManager/TextEditor → `/usr/bin/false` placeholders,
+    so every entry is a valid `AppFile`) and runs under a fresh per-run `$HOME`
+    (`--home $base/home`), making the dock layout deterministic (four entries, Terminal in
+    the 3rd slot at x=145) regardless of ambient config; (2) the launcher now `unlink()`s
+    any pre-existing screenshot before signalling WindowServer — `wait_for_file` had been
+    satisfied by a *stale* PNG from an earlier passing run, which is how this failure stayed
+    hidden locally even when Taskbar crashed. Note: the underlying Serenity fragility
+    (QuickLaunchWidget aborting on an invalid default `.af`) remains in the tree; it is
+    unreachable on real Serenity (all four exist under `/res/apps`) and would be an upstream
+    PR, not a patch here.
+
+  - 2026-09-03 — **WindowServer crash on WM-client disconnect (patch 0022).** CI failed
    `m4-taskbar-launch` with "no screenshot produced" while it passed locally 6/6 — a
    timing-dependent latent WindowServer bug. The Taskbar is a *window-manager* client
    (`make_window_manager`), and `WMConnectionFromClient`'s destructor calls
