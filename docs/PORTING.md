@@ -17,7 +17,7 @@ Living tracker. Update in the same commit as the work it describes, and keep
 | ConfigServer / Clipboard           | M4        | partial     | Both build natively now (Clipboard via patch 0007); launcher runs them as services; no SystemServer yet |
 | SystemServer shim + LaunchServer   | M4        | partial     | LaunchServer builds natively (patch 0009) and runs as a Calculator dependency; SystemServer shim still to do |
 | Launcher + resource env            | M4        | partial     | Headless launcher complete (socket takeover, services, screenshot) plus `--x11` mode (writes `Mode=X11`, passes `$DISPLAY` through) and `--home <dir>` (sets `$HOME` for spawned apps); SystemServer shim still to do |
-| App subset (Terminal, FileManager, Settings, ImageViewer, PixelPaint) | M4 | partial | Terminal + FileManager build & render on host (patches 0013–0018); Terminal via golden test, FileManager via functional `--expect-window` check (its window has host-dependent content, so no portable golden); cross-app copy/paste via clip-copy/clip-paste + launcher `--co-app` (`m4-clipboard-cross-app`). All 3 M4 exit criteria pass. Settings/ImageViewer/PixelPaint not started |
+| App subset (Terminal, FileManager, Settings, ImageViewer, PixelPaint) | M4 | partial | Terminal + FileManager build & render on host (patches 0013–0018); Terminal via golden test, FileManager via functional `--expect-window` check (its window has host-dependent content, so no portable golden); cross-app copy/paste via clip-copy/clip-paste + launcher `--co-app` (`m4-clipboard-cross-app`). Settings also builds & renders (patch 0023, links only already-built libs) with a deterministic panel-grid golden (`m4-settings`). All 3 M4 exit criteria pass. ImageViewer/PixelPaint not started (ImageViewer needs the FileSystemAccess/ImageDecoder client + service wiring) |
 | Taskbar / desktop UI               | M4        | done        | Real Serenity Taskbar builds under Lagom (patches 0019–0021: heavy `<WindowServer/Window.h>` include swapped for a light `WMEventMask.h`; `$SERENADE_APP_DIR` app-dir override so the dock lists apps with real executables; `Process::spawn` working-dir via portable `..._np` chdir). Launch-from-desktop proven two ways: `m4-launch-terminal` (LaunchServer IPC) and `m4-taskbar-launch` (scripted click on the Terminal quick-launch dock icon → the Taskbar's own spawn path opens a real window) |
 | FreeBSD support                    | M5        | not started | X-input path only; no evdev anywhere |
 | NetworkServer / AudioServer shims  | M6        | not started | Unblocks Browser/Mail/games |
@@ -26,6 +26,17 @@ Living tracker. Update in the same commit as the work it describes, and keep
 
 Record discoveries here as they happen (surprising `#ifdef` gaps, API quirks,
 decisions with trade-offs). Newest first.
+
+ - 2026-09-03 — **M4: the Settings app builds and renders on host (patch 0023).** Settings
+   is the icon grid of per-area settings panels. It links only already-built Lagom libraries
+   (LibCore, LibGfx, LibGUI, LibDesktop, LibMain) — no client libs, no new services — so it
+   needed zero portability changes; adding `add_serenity_subdirectory(Userland/Applications/Settings)`
+   to the host applications list was enough. Its model lists every `.af` with
+   `Category=Settings`; with no `$SERENADE_APP_DIR` override that reads the pinned `/res/apps`
+   (remapped to `$SERENITY_RES` by patch 0010), so the grid is a fixed, deterministic set of
+   panels. Three local renders are byte-identical, so `m4-settings` uses a golden test (like
+   Calculator/About). Note: Settings is a launcher for its per-area panels (separate
+   executables not yet built) — this milestone covers the app itself rendering, not the panels.
 
   - 2026-09-03 — **`m4-taskbar-launch` blank screen on CI: Taskbar aborted on a fresh
     `$HOME` (no Serenity change).** After patch 0022, CI produced a screenshot again, but it

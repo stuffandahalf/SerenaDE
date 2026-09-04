@@ -1,0 +1,21 @@
+From 9d4da09a8350f05eb2f5ee5f71246e6e38e33efa Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory@serenade.local>
+Date: Thu, 03 Sep 2026 00:00:00 +0000
+Subject: [PATCH 23/23] Lagom: Build the Settings app on host systems
+
+Settings (the icon grid of per-area settings panels) links only already-built
+Lagom libraries -- LibCore, LibGfx, LibGUI, LibDesktop and LibMain -- so it needs
+no portability changes; adding it to the host applications list is enough. It
+renders its panel grid deterministically from the pinned /res/apps (remapped to
+$SERENITY_RES by patch 0010), which m4-settings covers with a golden test.
+
+diff --git a/Meta/Lagom/CMakeLists.txt b/Meta/Lagom/CMakeLists.txt
+index 6f1f680d..9d6bda32 100644
+@@ -566,6 +566,7 @@
+         add_serenity_subdirectory(Userland/Applications/AnalogClock)
+         add_serenity_subdirectory(Userland/Applications/Calculator)
+         add_serenity_subdirectory(Userland/Applications/FileManager)
++        add_serenity_subdirectory(Userland/Applications/Settings)
+         add_serenity_subdirectory(Userland/Applications/Terminal)
+ 
+         # Terminal's pty helper is declared as a second target of the Terminal

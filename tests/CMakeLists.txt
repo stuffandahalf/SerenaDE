@@ -106,6 +106,25 @@ add_test(NAME m4-terminal-echo
         $<TARGET_FILE:Terminal> -e "echo SERENADE_M4_OK && sleep 30")
 set_tests_properties(m4-terminal-echo PROPERTIES TIMEOUT 90)
 
+# Settings renders its icon grid of every app whose .af has Category=Settings. With no
+# $SERENADE_APP_DIR override, discovery reads the pinned /res/apps (remapped to
+# $SERENITY_RES by patch 0010), so the grid is a fixed set of panels -- deterministic and
+# golden-able, like Calculator/About. ConfigServer (window/config state), LaunchServer and
+# Clipboard run as services, as in a real session. No clicks: it renders on startup.
+add_test(NAME m4-settings
+    COMMAND serenade-launcher
+        --res ${SERENITY_SOURCE_DIR}/Base/res
+        --screenshot ${CMAKE_CURRENT_BINARY_DIR}/m4-settings.png
+        --delay 6000
+        --log-dir ${CMAKE_CURRENT_BINARY_DIR}
+        --service /tmp/session/0/portal/config=$<TARGET_FILE:ConfigServer>
+        --service /tmp/session/0/portal/clipboard=$<TARGET_FILE:Clipboard>
+        --service /tmp/session/0/portal/launch=$<TARGET_FILE:LaunchServer>
+        --golden ${CMAKE_CURRENT_SOURCE_DIR}/golden/settings.png
+        $<TARGET_FILE:WindowServer>
+        $<TARGET_FILE:Settings>)
+set_tests_properties(m4-settings PROPERTIES TIMEOUT 90)
+
 # FileManager opens a controlled Documents directory and renders its listing over
 # the real host filesystem. The driver script (scripts/filemanager-docs.sh) builds
 # that directory with known contents and pinned mtimes, then launches FileManager on
