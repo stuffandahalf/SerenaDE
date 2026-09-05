@@ -1,0 +1,25 @@
+From 1a130f690978584924183ddb9e5ac49d1d7140ff Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory@serenade.local>
+Date: Fri, 05 Sep 2026 00:00:00 +0000
+Subject: [PATCH 28/28] CMake: Skip auto-linker selection on FreeBSD
+
+use_linker.cmake auto-detects ld.lld (present in the FreeBSD base system) and forces
+CMAKE_LINKER_TYPE lld. The FreeBSD clang/toolchain rejects that with "LINKER_TYPE 'LLD' is
+unknown or not supported by this toolchain", aborting configure during the Threads check.
+Skip the lld/mold auto-selection on FreeBSD so the default system linker is used instead;
+Linux (where it works) and Apple are unchanged.
+
+diff --git a/Meta/CMake/use_linker.cmake b/Meta/CMake/use_linker.cmake
+index d1628d70..30e36d1e 100644
+@@ -4,7 +4,10 @@
+ # SPDX-License-Identifier: BSD-2-Clause
+ #
+ 
+-if (NOT APPLE AND NOT LAGOM_USE_LINKER)
++# Auto-selecting lld/mold sets CMAKE_LINKER_TYPE, which the FreeBSD base toolchain rejects with
++# "LINKER_TYPE 'LLD' is unknown or not supported by this toolchain"; skip it there so the default
++# system linker is used instead.
++if (NOT APPLE AND NOT LAGOM_USE_LINKER AND NOT CMAKE_SYSTEM_NAME STREQUAL "FreeBSD")
+     find_program(LLD_LINKER NAMES "ld.lld")
+     if (LLD_LINKER)
+         message(STATUS "Using LLD to link Lagom.")

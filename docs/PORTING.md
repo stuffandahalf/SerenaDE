@@ -19,13 +19,23 @@ Living tracker. Update in the same commit as the work it describes, and keep
 | Launcher + resource env            | M4        | partial     | Headless launcher complete (socket takeover, services, screenshot) plus `--x11` mode (writes `Mode=X11`, passes `$DISPLAY` through) and `--home <dir>` (sets `$HOME` for spawned apps); SystemServer shim still to do |
  | App subset (Terminal, FileManager, Settings, ImageViewer, PixelPaint) | M4 | done | All five build & render on host: Terminal + FileManager (patches 0013–0018; Terminal via golden test, FileManager via functional `--expect-window` check since its window has host-dependent content); cross-app copy/paste via clip-copy/clip-paste + launcher `--co-app` (`m4-clipboard-cross-app`); Settings (patch 0023, links only already-built libs) with a panel-grid golden (`m4-settings`); ImageViewer (patch 0024, wires `LibFileSystemAccessClient` + generated IPC headers into Lagom) with an empty-window golden (`m4-imageviewer`); PixelPaint (patch 0025, apps list + GML include path + a latent `build_cursor` OOB-write fix) with an empty-document golden (`m4-pixelpaint`). All 3 M4 exit criteria pass. Note: ImageViewer/PixelPaint render their empty state on host; actually opening/decoding images still needs the FileSystemAccess/ImageDecoder services, not yet wired (an M6-adjacent task, not an M4 exit criterion) |
 | Taskbar / desktop UI               | M4        | done        | Real Serenity Taskbar builds under Lagom (patches 0019–0021: heavy `<WindowServer/Window.h>` include swapped for a light `WMEventMask.h`; `$SERENADE_APP_DIR` app-dir override so the dock lists apps with real executables; `Process::spawn` working-dir via portable `..._np` chdir). Launch-from-desktop proven two ways: `m4-launch-terminal` (LaunchServer IPC) and `m4-taskbar-launch` (scripted click on the Terminal quick-launch dock icon → the Taskbar's own spawn path opens a real window) |
- | FreeBSD support                    | M5        | in progress | Shim is already BSD-clean (X11/XShm only; no evdev/epoll//proc). Portability audit found + fixed the glibc-only `posix_spawn` features that break the FreeBSD build: patch 0026 (Process::spawn `..._addchdir_np` → Serenity/glibc gate + portable fork/chdir/exec fallback) and patch 0027 (FileManager's raw spawn setpgroup + chdir, gated to Serenity/glibc). The `build-freebsd` CI job boots a real FreeBSD VM via **vmactions/freebsd-vm** on a hosted `ubuntu-latest` runner (no self-hosted machine needed) and fetches the pinned Serenity source in-VM. Open risk: the pin needs C++26 (`CMAKE_CXX_STANDARD 26`, `-Werror`) → may need a newer clang than the VM's base |
+ | FreeBSD support                    | M5        | in progress | Shim is already BSD-clean (X11/XShm only; no evdev/epoll//proc). Portability audit found + fixed the glibc-only `posix_spawn` features that break the FreeBSD build: patch 0026 (Process::spawn `..._addchdir_np` → Serenity/glibc gate + portable fork/chdir/exec fallback) patch 0027 (FileManager's raw spawn setpgroup + chdir, gated to Serenity/glibc), and patch 0028 (skip LLD/mold auto-selection on FreeBSD — the toolchain rejects `CMAKE_LINKER_TYPE lld`). The `build-freebsd` CI job boots a real FreeBSD VM via **vmactions/freebsd-vm** on a hosted `ubuntu-latest` runner (no self-hosted machine needed), installs a self-consistent pkg LLVM, and fetches the pinned Serenity source in-VM. Open risk: the pin needs C++26 (`CMAKE_CXX_STANDARD 26`, `-Werror`) → the pkg LLVM's clang must be new enough |
 | NetworkServer / AudioServer shims  | M6        | not started | Unblocks Browser/Mail/games |
 
 ## Porting log
 
 Record discoveries here as they happen (surprising `#ifdef` gaps, API quirks,
  decisions with trade-offs). Newest first.
+
+ - 2026-09-05 — **M5: FreeBSD configure fix — stop forcing the LLD linker (patch 0028).**
+   The first real FreeBSD run failed at configure with `LINKER_TYPE 'LLD' is unknown or not supported by this
+   toolchain`. Root cause: Serenity's `Meta/CMake/use_linker.cmake` auto-detects `ld.lld` (present in the FreeBSD
+   base system) and forces `CMAKE_LINKER_TYPE lld`, which the FreeBSD clang/toolchain rejects during the Threads
+   try_compile. Patch 0028 skips the lld/mold auto-selection on FreeBSD (`CMAKE_SYSTEM_NAME STREQUAL "FreeBSD"`) so
+   the default system linker is used instead; Linux (where LLD works) and Apple are unchanged — verified locally,
+   250/250. The `build-freebsd` job also now installs a self-consistent pkg LLVM and auto-selects the newest
+   `clangNN`/`clang++NN`: that keeps a matching lld available and gives a newer clang for the pin's C++26
+   requirement (`CMAKE_CXX_STANDARD 26`, `-Werror`) — still to be confirmed by the next run.
 
  - 2026-09-04 — **M5: real FreeBSD CI via vmactions/freebsd-vm + FileManager spawn portability (patch 0027).**
    GitHub has no hosted FreeBSD runner, but `vmactions/freebsd-vm` boots a real FreeBSD VM (QEMU) inside a
