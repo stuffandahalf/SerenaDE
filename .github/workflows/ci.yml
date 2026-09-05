@@ -60,9 +60,10 @@ jobs:
   # VM (a shallow fetch of the exact commit) to keep that sync small. By design this codebase
   # has no evdev or other Linux-only input path, so the same sources must build here unchanged;
   # the platform-specific fixes live in patches/ (see docs/PORTING.md). KNOWN RISK: the Serenity
-  # pin requires C++26 (CMAKE_CXX_STANDARD 26, -Werror), which on Linux needs Clang 22 -- if the
-  # VM's base clang is too old you'll see C++26 compile errors; then install a newer one in
-  # `prepare` (pkg install -y llvmNN) and change the compiler to clangNN/clang++NN below.
+  # pin requires C++26 (CMAKE_CXX_STANDARD 26, -Werror; Linux needs Clang 22). Serenity's
+  # use_linker.cmake auto-detects ld.lld and forces CMAKE_LINKER_TYPE lld, which the base toolchain
+  # rejects ("LINKER_TYPE 'LLD' is unknown or not supported"); we therefore install a self-consistent
+  # LLVM via pkg (matching clang + ld.lld) and use its newest clangNN/clang++NN in the run step.
   build-freebsd:
     runs-on: ubuntu-latest
     steps:
@@ -74,6 +75,11 @@ jobs:
           release: "15" # newest stable line; gives the best shot at a recent-enough clang for C++26
           prepare: |
             pkg install -y cmake ninja git curl ca_root_nss libX11 libXext
+            # Self-consistent LLVM (matching clang + ld.lld). Serenity's use_linker.cmake auto-detects
+            # ld.lld and forces CMAKE_LINKER_TYPE lld, which the base toolchain rejects; a pkg LLVM also
+            # gives a newer clang for the pin's C++26. Soft-fail so a missing 'llvm' package name falls
+            # back to base clang (the run step prints what it actually found).
+            pkg install -y llvm || echo "NOTE: no 'llvm' package; using base clang"
           run: |
             set -e
             # Fetch the pinned Serenity source inside the VM (keep in sync with
@@ -83,8 +89,18 @@ jobs:
             git -C deps/serenity remote add origin https://github.com/SerenityOS/serenity.git
             git -C deps/serenity fetch --depth 1 --quiet origin 7784b1f535a431635443e04d37a9e279ddb9b8eb
             git -C deps/serenity checkout -q FETCH_HEAD
+            # Use the pkg-installed LLVM if present (newer than base; ships a matching ld.lld so CMake's
+            # auto-selected LLD linker type works). Prefer newest versioned clangNN/clang++NN, else the
+            # unversioned /usr/local ones, else PATH. The diagnostics make any naming gap obvious in logs.
+            CLANG=$(ls /usr/local/bin/clang[0-9]* 2>/dev/null | sort -V | tail -1)
+            CLANGXX=$(ls /usr/local/bin/clang++[0-9]* 2>/dev/null | sort -V | tail -1)
+            [ -n "$CLANG" ] || CLANG=/usr/local/bin/clang
+            [ -x "$CLANG" ] || CLANG=clang
+            [ -n "$CLANGXX" ] || CLANGXX=/usr/local/bin/clang++
+            [ -x "$CLANGXX" ] || CLANGXX=clang++
+            echo "=== toolchain ==="; ls -l /usr/local/bin/clang* /usr/local/bin/ld.lld* 2>&1 | head -30; "$CLANG" --version 2>&1 | head -1
             cmake -B Build -G Ninja \
-              -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+              -DCMAKE_C_COMPILER="$CLANG" -DCMAKE_CXX_COMPILER="$CLANGXX" \
               -DSERENITY_SOURCE_DIR="$GITHUB_WORKSPACE/deps/serenity"
             cmake --build Build
             ctest --test-dir Build --output-on-failure
