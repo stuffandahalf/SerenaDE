@@ -1,0 +1,42 @@
+From a72ff754f1e829ab33d3b93b5075cd66ffb2b8ba Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory@serenade.local>
+Date: Fri, 06 Sep 2026 00:00:00 +0000
+Subject: [PATCH 34/34] Tests: Add signal.h/sys/wait.h includes for BSD portability
+
+The Kernel POSIX wait tests use siginfo_t (and TestWaitDoesReap also uses waitid/WEXITED) but rely
+on glibc pulling in <signal.h>/<sys/wait.h> transitively; FreeBSD does not, so they fail with
+"unknown type name 'siginfo_t'". Add the explicit includes: <signal.h> to all three (for siginfo_t /
+struct sigaction / SA_SIGINFO), and <sys/wait.h> to TestWaitDoesReap (it used waitid/WEXITED without
+it). Linux/Serenity behavior is unchanged (redundant-but-harmless on glibc).
+
+diff --git a/Tests/Kernel/POSIX/Wait/TestWaitNoChild.cpp b/Tests/Kernel/POSIX/Wait/TestWaitNoChild.cpp
+index 55a53e4f..97b7bf31 100644
+@@ -5,6 +5,7 @@
+  */
+ 
+ #include <LibTest/TestCase.h>
++#include <signal.h>
+ #include <sys/wait.h>
+ 
+ static void run_test(auto callback)
+diff --git a/Tests/Kernel/POSIX/Wait/TestWaitFirstNoHang.cpp b/Tests/Kernel/POSIX/Wait/TestWaitFirstNoHang.cpp
+index 3e623517..7f696558 100644
+@@ -6,6 +6,7 @@
+ 
+ #include <LibCore/System.h>
+ #include <LibTest/TestCase.h>
++#include <signal.h>
+ #include <sys/wait.h>
+ #include <unistd.h>
+ 
+diff --git a/Tests/Kernel/POSIX/Wait/TestWaitDoesReap.cpp b/Tests/Kernel/POSIX/Wait/TestWaitDoesReap.cpp
+index d026bcf5..0814ae6e 100644
+@@ -6,6 +6,8 @@
+ 
+ #include <LibCore/System.h>
+ #include <LibTest/TestCase.h>
++#include <signal.h>
++#include <sys/wait.h>
+ 
+ enum class TestNoWait : u8 {
+     No = 0,
