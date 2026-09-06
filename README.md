@@ -6,7 +6,7 @@ using **X11** for display and input.
 
 This repo is a *shim*: it contains only the platform-specific glue (X11 screen
 and input backends, host service shims, launcher, tests, CI) plus a minimal
-tracked patch set (28 patches) applied to a pinned
+tracked patch set (29 patches) applied to a pinned
 [Serenity](https://github.com/SerenityOS/serenity) source tree, which is built
 with its official host-build system, Lagom.
 

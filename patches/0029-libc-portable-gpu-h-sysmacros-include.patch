@@ -1,0 +1,26 @@
+From c9317f61f2287a7401d687b25291489bf74161ea Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory@serenade.local>
+Date: Fri, 06 Sep 2026 00:00:00 +0000
+Subject: [PATCH 29/29] LibC: Make sys/devices/gpu.h's sysmacros include portable
+
+gpu.h uses minor() and includes <sys/sysmacros.h>, a glibc/Linux header that does not
+exist on FreeBSD (BSDs expose major()/minor()/makedev() via <sys/types.h>). This breaks
+the host build of anything pulling in the generated gpu.h shim (WindowServer and the
+X11 backend) on FreeBSD. Gate the include to Serenity/glibc and use <sys/types.h> on
+other hosts; Linux and Serenity behavior is unchanged.
+
+diff --git a/Userland/Libraries/LibC/sys/devices/gpu.h b/Userland/Libraries/LibC/sys/devices/gpu.h
+index dadeeaf2..bbb2ea10 100644
+@@ -15,7 +15,12 @@
+ #include <sys/cdefs.h>
+ #include <sys/ioctl.h>
+ #include <sys/stat.h>
++#if defined(AK_OS_SERENITY) || defined(__GLIBC__)
+ #include <sys/sysmacros.h>
++#else
++// BSDs (e.g. FreeBSD) expose major()/minor()/makedev() via <sys/types.h>, not <sys/sysmacros.h>.
++#include <sys/types.h>
++#endif
+ #include <unistd.h>
+ 
+ __BEGIN_DECLS
