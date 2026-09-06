@@ -1,0 +1,24 @@
+From 9840c46a1fed27cd4cdb91461d08b91b39dac7fd Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory@serenade.local>
+Date: Fri, 06 Sep 2026 00:00:00 +0000
+Subject: [PATCH 33/33] Terminal: Include util.h for forkpty on BSDs
+
+Terminal/main.cpp includes <pty.h> for forkpty(), but that header is glibc/Serenity-only; FreeBSD
+provides forkpty()/openpty() in <util.h> (with a compatible signature). Gate the include to
+Serenity/glibc and use <util.h> on other hosts. Linux/Serenity behavior is unchanged.
+
+diff --git a/Userland/Applications/Terminal/main.cpp b/Userland/Applications/Terminal/main.cpp
+index 57f487f9..949fb8fc 100644
+@@ -38,7 +38,12 @@
+ #include <LibMain/Main.h>
+ #include <LibURL/URL.h>
+ #include <LibVT/TerminalWidget.h>
++#if defined(AK_OS_SERENITY) || defined(__GLIBC__)
+ #include <pty.h>
++#else
++// BSDs (e.g. FreeBSD) provide forkpty()/openpty() in <util.h>, not <pty.h>.
++#include <util.h>
++#endif
+ 
+ class TerminalChangeListener : public Config::Listener {
+ public:
