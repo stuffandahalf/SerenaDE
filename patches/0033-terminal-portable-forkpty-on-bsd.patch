@@ -1,0 +1,31 @@
+From b9dd831e99622a8715647afc8b6999815fc277ec Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory@serenade.local>
+Date: Fri, 06 Sep 2026 00:00:00 +0000
+Subject: [PATCH 33/33] Terminal: Make forkpty portable for BSDs (no pty.h/util.h)
+
+Terminal/main.cpp needs forkpty() to spawn its shell. glibc/Serenity provide it via <pty.h>, but on
+FreeBSD it lives in libutil (merged into libc) and the <util.h> header is not present in every setup,
+so a plain #include fails. Declare forkpty() directly for non-Serenity/non-glibc hosts instead of
+including a platform-specific header; only pointers to struct termios / winsize are used (both passed
+as nullptr), so forward declarations suffice. Linux/Serenity behavior is unchanged.
+
+diff --git a/Userland/Applications/Terminal/main.cpp b/Userland/Applications/Terminal/main.cpp
+index 57f487f9..47be1499 100644
+@@ -38,7 +38,17 @@
+ #include <LibMain/Main.h>
+ #include <LibURL/URL.h>
+ #include <LibVT/TerminalWidget.h>
++#if defined(AK_OS_SERENITY) || defined(__GLIBC__)
+ #include <pty.h>
++#else
++// BSDs put forkpty() in libutil (merged into libc), but the <util.h> header is not present in every
++// configuration (e.g. some FreeBSD setups). Declare the function directly instead of including a
++// platform-specific header; only pointers to struct termios / winsize are used (both passed as
++// nullptr below), so forward declarations suffice.
++struct termios;
++struct winsize;
++extern "C" pid_t forkpty(int* amaster, char* name, const struct termios* termp, const struct winsize* winp);
++#endif
+ 
+ class TerminalChangeListener : public Config::Listener {
+ public:
