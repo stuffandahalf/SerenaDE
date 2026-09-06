@@ -1,0 +1,21 @@
+From 627449732d7398f0f1cc684c11e4413dcdfa97d2 Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory@serenade.local>
+Date: Fri, 06 Sep 2026 00:00:00 +0000
+Subject: [PATCH 35/35] Terminal: Link libutil for forkpty on BSDs
+
+forkpty() is declared directly on BSDs (patch 0033) but lives in libutil there, not libc, so the
+Terminal link fails with "undefined symbol: forkpty". Link util into the Terminal target on BSD
+hosts. glibc/Serenity provide forkpty elsewhere, so the CMAKE_SYSTEM_NAME guard makes this a no-op
+for them.
+
+diff --git a/Userland/Applications/Terminal/CMakeLists.txt b/Userland/Applications/Terminal/CMakeLists.txt
+index f6884b73..5ea03c6e 100644
+@@ -10,3 +10,8 @@
+ 
+ serenity_app(Terminal ICON app-terminal)
+ target_link_libraries(Terminal PRIVATE LibConfig LibCore LibFileSystem LibDesktop LibGfx LibGUI LibVT LibMain LibURL)
++
++# forkpty() lives in libutil on BSDs (not libc); glibc and Serenity provide it elsewhere.
++if (CMAKE_SYSTEM_NAME MATCHES "BSD")
++    target_link_libraries(Terminal PRIVATE util)
++endif()
