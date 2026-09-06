@@ -74,7 +74,7 @@ jobs:
         with:
           release: "15" # newest stable line; gives the best shot at a recent-enough clang for C++26
           prepare: |
-            pkg install -y cmake ninja git curl ca_root_nss pkgconf libX11 libXext
+            pkg install -y bash cmake ninja git curl ca_root_nss pkgconf libX11 libXext
             # Self-consistent LLVM (matching clang + ld.lld). Serenity's use_linker.cmake auto-detects
             # ld.lld and forces CMAKE_LINKER_TYPE lld, which the base toolchain rejects; a pkg LLVM also
             # gives a newer clang for the pin's C++26. Soft-fail so a missing 'llvm' package name falls
