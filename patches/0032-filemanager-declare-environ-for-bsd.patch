@@ -1,0 +1,24 @@
+From 44a8f9a40d7f5b22c58483baecc8c678fc76d48c Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory@serenade.local>
+Date: Fri, 06 Sep 2026 00:00:00 +0000
+Subject: [PATCH 32/32] FileManager: Declare environ for hosts whose unistd.h omits it
+
+DirectoryView.cpp's launch() passes the environ global to posix_spawn (pre-existing code). glibc's
+<unistd.h> declares it, but FreeBSD's does not, so the build fails with "use of undeclared
+identifier 'environ'". Declare it explicitly, matching LibCore/System.cpp and LibShell/Shell.cpp.
+On glibc/Serenity this is a compatible redeclaration of the header-provided global.
+
+diff --git a/Userland/Applications/FileManager/DirectoryView.cpp b/Userland/Applications/FileManager/DirectoryView.cpp
+index a396578d..6cfce7f9 100644
+@@ -29,6 +29,11 @@
+ #include <stdio.h>
+ #include <unistd.h>
+ 
++// environ is not declared by <unistd.h> on every host (notably FreeBSD); declare it explicitly,
++// matching LibCore/System.cpp and LibShell/Shell.cpp. On glibc/Serenity this is a compatible
++// redeclaration of the header-provided global.
++extern char** environ;
++
+ // posix_spawn_file_actions_addchdir is a GNU extension that only exists on newer
+ // glibc (~>= 2.40); the portable standard name (POSIX, glibc >= 2.24) is ..._np.
+ // Serenity's LibC uses the former; host systems use the latter.
