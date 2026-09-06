@@ -1,0 +1,33 @@
+From 477a84a8b5bbbc601d6df3215187bb1d9bc5a75a Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory@serenade.local>
+Date: Fri, 06 Sep 2026 00:00:00 +0000
+Subject: [PATCH 30/30] LibTest: Skip prctl in CrashTest on BSDs
+
+CrashTest.cpp includes <sys/prctl.h> and calls prctl(PR_SET_DUMPABLE, ...) on every host
+except macOS/Emscripten/Hurd. prctl is Linux/Serenity-only and does not exist on FreeBSD, so
+this fails to compile there. Add AK_OS_BSD_GENERIC to both guards so BSDs skip the include
+and the call (the crash-test child simply stays dumpable; these tests are not exercised in
+the host port). Linux/Serenity behavior is unchanged.
+
+diff --git a/Userland/Libraries/LibTest/CrashTest.cpp b/Userland/Libraries/LibTest/CrashTest.cpp
+index c0b1e272..d648d5a0 100644
+@@ -12,7 +12,7 @@
+ #include <sys/wait.h>
+ #include <unistd.h>
+ 
+-#if !defined(AK_OS_MACOS) && !defined(AK_OS_EMSCRIPTEN) && !defined(AK_OS_GNU_HURD)
++#if !defined(AK_OS_MACOS) && !defined(AK_OS_EMSCRIPTEN) && !defined(AK_OS_GNU_HURD) && !defined(AK_OS_BSD_GENERIC)
+ #    include <sys/prctl.h>
+ #endif
+ 
+@@ -41,7 +41,9 @@
+ #if defined(AK_OS_GNU_HURD)
+             // When we crash, just kill the program, don't dump core.
+             setenv("CRASHSERVER", "/servers/crash-kill", true);
+-#elif !defined(AK_OS_MACOS) && !defined(AK_OS_EMSCRIPTEN)
++#elif !defined(AK_OS_MACOS) && !defined(AK_OS_EMSCRIPTEN) && !defined(AK_OS_BSD_GENERIC)
++            // prctl() is Linux/Serenity-only (BSDs have no equivalent), so on BSDs the crash-test
++            // child simply stays dumpable; we don't exercise these tests in the host port anyway.
+             if (prctl(PR_SET_DUMPABLE, 0, 0, 0) < 0)
+                 perror("prctl(PR_SET_DUMPABLE)");
+ #endif
