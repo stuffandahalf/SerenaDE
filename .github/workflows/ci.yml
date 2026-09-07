@@ -103,4 +103,20 @@ jobs:
               -DCMAKE_C_COMPILER="$CLANG" -DCMAKE_CXX_COMPILER="$CLANGXX" \
               -DSERENITY_SOURCE_DIR="$GITHUB_WORKSPACE/deps/serenity"
             cmake --build Build
+            # Run the suite; on failure, surface the runtime logs (the VM workspace is not retained as an
+            # artifact) so a WindowServer/app crash or stall is diagnosable from this Actions log.
+            set +e
             ctest --test-dir Build --output-on-failure
+            ctest_rc=$?
+            set -e
+            if [ "$ctest_rc" -ne 0 ]; then
+                # Re-run one simple GUI test in isolation so its logs are fresh and unambiguous, then dump them.
+                echo "===== ctest FAILED (rc=$ctest_rc); re-running m1-headless-analog-clock for diagnostics ====="
+                ctest --test-dir Build -R '^m1-headless-analog-clock-screenshot$' --output-on-failure || true
+                for f in serenade-windowserver.log serenade-app.log; do
+                    echo "----- Build/tests/$f -----"
+                    tail -n 200 "Build/tests/$f" 2>/dev/null || echo "(missing)"
+                    echo
+                done
+            fi
+            exit "$ctest_rc"
