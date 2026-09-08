@@ -66,6 +66,8 @@ jobs:
   # LLVM via pkg (matching clang + ld.lld) and use its newest clangNN/clang++NN in the run step.
   build-freebsd:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # lets the failure handler push ctest output to the ci-diagnostics branch
     steps:
       - uses: actions/checkout@v4
 

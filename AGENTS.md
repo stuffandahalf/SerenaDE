@@ -300,8 +300,11 @@ hosted `ubuntu-latest` runner (no self-hosted machine needed) and fetches the pi
 *runtime* failure was WindowServer dying at startup: LibCore had no *BSD FileWatcher backend, so
 `MUST(Core::FileWatcher::create())` in its EventLoop (and in Taskbar/ConfigServer/etc.) hit the unimplemented
 stub's ENOTSUP; patch 0036 adds an inert *BSD backend (`FileWatcherBsd.cpp`) so create() always succeeds.
-Remaining M5: confirm the runtime test suite passes in the VM, plus the polish items (DPI/scale factors,
-cursor themes; focus/raise already works).
+The last failures were two root-only permission tests (`TestSFTPStat::no_permission`,
+`TestSqlDatabase::create_from_unreadable_file`); running the suite as a non-root user hung a GUI test, so
+patch 0037 keeps ctest as root and skips those cases when `getuid() == 0`. The CI job pushes full ctest
+output to a `ci-diagnostics` branch on failure for diagnosis. Remaining M5: confirm the suite is green in
+the VM, plus the polish items (DPI/scale factors, cursor themes; focus/raise already works).
 
 ## Patch workflow
 

@@ -1,0 +1,39 @@
+From a9c8df924b6a18e188d21797ddc95ce06bff8215 Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory@serenade.local>
+Date: Tue, 08 Sep 2026 00:00:00 +0000
+Subject: [PATCH 37/37] Tests: Skip permission-sensitive cases when running as root
+
+The FreeBSD CI VM runs ctest as root, which bypasses the file/directory
+permission checks two test cases rely on: SFTP's no_permission chmods a
+directory to 0600 and expects PERMISSION_DENIED, and SQL's
+create_from_unreadable_file opens /etc/shadow expecting an error. As root those
+preconditions do not hold, so skip the cases when getuid() == 0. Non-root runs
+(Linux CI, local dev) are unaffected and still exercise the cases.
+
+diff --git a/Tests/LibSSH/SFTP/TestSFTPStat.cpp b/Tests/LibSSH/SFTP/TestSFTPStat.cpp
+index 281cd3a164..bc638d23b9 100644
+@@ -156,6 +156,11 @@ TEST_CASE(symlink)
+ 
+ TEST_CASE(no_permission)
+ {
++    // Root bypasses the directory-permission check this case relies on, so it can only run as a
++    // non-root user (the FreeBSD CI VM runs ctest as root).
++    if (getuid() == 0)
++        return;
++
+     auto tmp_dir = TRY_OR_FAIL(FileSystem::TempFile::create_temp_directory());
+     // The directory is created with 0700, remove the executable bit to make inner files inaccessible.
+     TRY_OR_FAIL(Core::System::chmod(tmp_dir->path(), 0600));
+diff --git a/Tests/LibSQL/TestSqlDatabase.cpp b/Tests/LibSQL/TestSqlDatabase.cpp
+index 1d5e66c1e8..3ad69199f7 100644
+@@ -114,6 +114,10 @@ TEST_CASE(create_from_dev_random)
+ 
+ TEST_CASE(create_from_unreadable_file)
+ {
++    // As root, /etc/shadow is readable, so the "unreadable file" precondition does not hold.
++    if (getuid() == 0)
++        return;
++
+     auto heap = MUST(SQL::Heap::create("/etc/shadow"));
+     auto should_be_error = heap->open();
+     EXPECT(should_be_error.is_error());
