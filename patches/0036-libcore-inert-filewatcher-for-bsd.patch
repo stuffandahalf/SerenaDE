@@ -1,0 +1,178 @@
+From 0764b5ffcd1f76cc2c4c1edc5d7822d65412ef58 Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory@serenade.local>
+Date: Mon, 07 Sep 2026 00:00:00 +0000
+Subject: [PATCH 36/36] LibCore: Add inert FileWatcher backend for *BSD
+
+On *BSD hosts Core::FileWatcher had no backend, so create() fell through to the
+unimplemented stub and returned ENOTSUP. WindowServer's EventLoop (and other
+consumers such as Taskbar and ConfigServer) call MUST(Core::FileWatcher::create())
+at startup and therefore crashed on every *BSD host.
+
+Host event loops multiplex file descriptors with poll(2) and there is no Serenity
+devicemap to observe, so a real inotify/kqueue-backed watcher is not required. Add a
+valid but inert *BSD backend: create() always succeeds using an idle pipe (read end
+non-blocking, write end held open so it never reaches EOF), add_watch()/remove_watch()
+only keep bookkeeping state, and no change events are ever delivered. This unblocks
+every FileWatcher consumer on *BSD at once.
+
+diff --git a/Userland/Libraries/LibCore/CMakeLists.txt b/Userland/Libraries/LibCore/CMakeLists.txt
+index c97005208e..2ba11dd862 100644
+@@ -77,7 +77,8 @@ if (NOT WIN32 AND NOT EMSCRIPTEN)
+     list(APPEND SOURCES LocalServer.cpp)
+ endif()
+ 
+-# FIXME: Implement Core::FileWatcher for *BSD and Windows.
++# *BSD hosts get an inert FileWatcher backend (FileWatcherBsd.cpp); only
++# Windows remains unimplemented.
+ if (SERENITYOS)
+     list(APPEND SOURCES
+         FileWatcherSerenity.cpp
+@@ -93,6 +94,11 @@ elseif (APPLE)
+         FileWatcherMacOS.mm
+         Platform/ProcessStatisticsMach.cpp
+     )
++elseif (CMAKE_SYSTEM_NAME MATCHES "BSD")
++    list(APPEND SOURCES
++        FileWatcherBsd.cpp
++        Platform/ProcessStatisticsUnimplemented.cpp
++    )
+ else()
+     list(APPEND SOURCES
+         FileWatcherUnimplemented.cpp
+diff --git a/Userland/Libraries/LibCore/FileWatcher.h b/Userland/Libraries/LibCore/FileWatcher.h
+index 42bb783131..f99b935fce 100644
+@@ -83,6 +83,10 @@ protected:
+     FileWatcher(int watcher_fd, NonnullRefPtr<Notifier>);
+ 
+     NonnullRefPtr<Notifier> m_notifier;
++
++    // *BSD inert backend only: holds the write end of an internal pipe so the
++    // read end never reaches EOF (keeping the notifier dormant). -1 elsewhere.
++    int m_inert_pipe_write_fd { -1 };
+ };
+ 
+ }
+diff --git a/Userland/Libraries/LibCore/FileWatcherBsd.cpp b/Userland/Libraries/LibCore/FileWatcherBsd.cpp
+new file mode 100644
+index 0000000000..4224df5aef
+--- /dev/null
++++ b/Userland/Libraries/LibCore/FileWatcherBsd.cpp
+@@ -0,0 +1,118 @@
++/*
++ * Copyright (c) 2024, the SerenityOS developers.
++ *
++ * SPDX-License-Identifier: BSD-2-Clause
++ */
++
++// Core::FileWatcher for *BSD host systems. These hosts have no Serenity
++// devicemap to observe, and their event loop multiplexes file descriptors with
++// poll(2), so a real inotify/kqueue-backed watcher is not required for the
++// desktop to run. This backend provides a valid but inert watcher: create()
++// always succeeds, add_watch()/remove_watch() only keep bookkeeping state, and
++// no change events are ever delivered. Live hot-plug detection of device nodes
++// is unavailable on hosts regardless, so this is sufficient for Lagom builds.
++
++#include "FileWatcher.h"
++#include <AK/ByteString.h>
++#include <AK/Debug.h>
++#include <LibCore/Notifier.h>
++#include <errno.h>
++#include <fcntl.h>
++#include <unistd.h>
++
++#if !defined(AK_OS_BSD_GENERIC)
++static_assert(false, "This file must only be used for *BSD");
++#endif
++
++namespace Core {
++
++ErrorOr<NonnullRefPtr<FileWatcher>> FileWatcher::create(FileWatcherFlags flags)
++{
++    (void)flags; // Inert watcher: the pipe's flags are fixed regardless of request.
++
++    int pipe_fds[2];
++    if (::pipe(pipe_fds) < 0)
++        return Error::from_errno(errno);
++
++    auto read_fd = pipe_fds[0];
++    auto write_fd = pipe_fds[1];
++
++    // Make the read end non-blocking so a stray activation can never stall the
++    // event loop, and close both ends on exec. The read end is never written to,
++    // so it stays unreadable and the notifier below remains dormant.
++    (void)fcntl(read_fd, F_SETFL, O_NONBLOCK);
++    if (fcntl(write_fd, F_SETFD, FD_CLOEXEC) < 0 || fcntl(read_fd, F_SETFD, FD_CLOEXEC) < 0) {
++        int saved_errno = errno;
++        ::close(read_fd);
++        ::close(write_fd);
++        return Error::from_errno(saved_errno);
++    }
++
++    auto notifier = TRY(Notifier::try_create(read_fd, Notifier::Type::Read));
++    auto watcher = adopt_nonnull_ref_or_enomem(new (nothrow) FileWatcher(read_fd, move(notifier)));
++    if (!watcher) {
++        ::close(write_fd);
++        return Error::from_errno(ENOMEM);
++    }
++
++    // Keep the write end open for the object's lifetime (closed in ~FileWatcher)
++    // so the read end never reaches EOF and keeps the notifier dormant.
++    watcher->m_inert_pipe_write_fd = write_fd;
++    return watcher;
++}
++
++FileWatcher::FileWatcher(int watcher_fd, NonnullRefPtr<Notifier> notifier)
++    : FileWatcherBase(watcher_fd)
++    , m_notifier(move(notifier))
++{
++    // The pipe is never written to, so this should not activate. If it ever
++    // does (e.g. a stray write), drain it and emit no event rather than spin.
++    m_notifier->on_activation = [this] {
++        u8 buffer[64];
++        while (::read(m_notifier->fd(), buffer, sizeof(buffer)) > 0) {
++        }
++    };
++}
++
++FileWatcher::~FileWatcher()
++{
++    if (m_inert_pipe_write_fd >= 0)
++        ::close(m_inert_pipe_write_fd);
++}
++
++ErrorOr<bool> FileWatcherBase::add_watch(ByteString path, FileWatcherEvent::Type)
++{
++    // No OS-level watch is set up on *BSD hosts; just record the path so that
++    // is_watching()/remove_watch() behave consistently with other backends.
++    if (m_path_to_wd.find(path) != m_path_to_wd.end()) {
++        dbgln_if(FILE_WATCHER_DEBUG, "add_watch: path '{}' is already being watched", path);
++        return false;
++    }
++
++    unsigned watch_descriptor = m_wd_to_path.size() + 1;
++    while (m_wd_to_path.contains(watch_descriptor))
++        ++watch_descriptor;
++
++    m_path_to_wd.set(path, watch_descriptor);
++    m_wd_to_path.set(watch_descriptor, path);
++
++    dbgln_if(FILE_WATCHER_DEBUG, "add_watch: recording path '{}' (inert *BSD watcher)", path);
++    return true;
++}
++
++ErrorOr<bool> FileWatcherBase::remove_watch(ByteString path)
++{
++    auto it = m_path_to_wd.find(path);
++    if (it == m_path_to_wd.end()) {
++        dbgln_if(FILE_WATCHER_DEBUG, "remove_watch: path '{}' is not being watched", path);
++        return false;
++    }
++
++    m_path_to_wd.remove(it);
++    m_wd_to_path.remove(it->value);
++
++    dbgln_if(FILE_WATCHER_DEBUG, "remove_watch: stopped recording path '{}'", path);
++    return true;
++}
++
++}

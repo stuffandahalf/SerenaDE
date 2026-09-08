@@ -287,18 +287,21 @@ third `ScreenBackend`, no compositor changes). All Xlib stays in SerenaDE's
        All five M4 apps (Terminal, FileManager, Settings, ImageViewer, PixelPaint) now build and render.
        Full serial ctest is **250/250**. See `docs/PORTING.md`.
 
-**M5 — in progress (2026-09-04).** FreeBSD support + polish. A portability audit of the shim
-(`src/`) found it already BSD-clean (only X11/XShm, both portable; no evdev/epoll//proc). The audit of
-the patch set found two glibc-only `posix_spawn` features that break the FreeBSD build: `..._addchdir_np`
-(patch 0021's host path) in `Core::Process`, and FileManager's own raw spawn (the `..._np` macro + the
-setpgroup spawn attribute). Patch 0026 gates Process's chdir file action to Serenity/glibc with a portable
-fork/chdir/exec fallback for other hosts (validated end-to-end by forcing it on); patch 0027 gates
-FileManager's setpgroup + chdir the same way (on BSDs it degrades to a plain spawn). The `build-freebsd` CI
-job uses **vmactions/freebsd-vm** to boot a real FreeBSD VM (QEMU) inside a hosted `ubuntu-latest` runner —
-no self-hosted machine needed — and fetches the pinned Serenity source in-VM. KNOWN RISK: the pin requires
-C++26 (`CMAKE_CXX_STANDARD 26`, `-Werror`), which on Linux needs Clang 22; if the VM's base clang is too old
-the build fails on C++26 and we bump to a newer `llvmNN`. Remaining M5: get that job green (watch the first
-run's log) and the polish items (DPI/scale factors, cursor themes; focus/raise already works).
+**M5 — in progress (2026-09-07).** FreeBSD support + polish. A portability audit of the shim
+(`src/`) found it already BSD-clean (only X11/XShm, both portable; no evdev/epoll//proc). Patches 0026–0035
+then cleared every compile/link blocker on a real FreeBSD VM: glibc-only `posix_spawn` features gated to
+Serenity/glibc with portable fallbacks (0026 Process, 0027 FileManager), LLD auto-selection skipped (0028),
+portable `<sys/sysmacros.h>` in gpu.h (0029), `prctl` skipped on BSDs in CrashTest + test262-runner
+(0030–0031), `environ` declared in FileManager (0032), Terminal's `forkpty` declared directly (0033) and
+libutil linked (0035), and explicit signal/wait includes in the Kernel wait tests (0034). The full build +
+link now succeeds on FreeBSD, and C++26 compiles under the VM's clang 19 — the earlier "needs Clang 22" risk
+did not materialize. The `build-freebsd` CI job boots a real FreeBSD VM via **vmactions/freebsd-vm** on a
+hosted `ubuntu-latest` runner (no self-hosted machine needed) and fetches the pinned source in-VM. The first
+*runtime* failure was WindowServer dying at startup: LibCore had no *BSD FileWatcher backend, so
+`MUST(Core::FileWatcher::create())` in its EventLoop (and in Taskbar/ConfigServer/etc.) hit the unimplemented
+stub's ENOTSUP; patch 0036 adds an inert *BSD backend (`FileWatcherBsd.cpp`) so create() always succeeds.
+Remaining M5: confirm the runtime test suite passes in the VM, plus the polish items (DPI/scale factors,
+cursor themes; focus/raise already works).
 
 ## Patch workflow
 
