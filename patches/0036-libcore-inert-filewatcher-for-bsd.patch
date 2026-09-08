@@ -54,7 +54,7 @@ index 42bb783131..f99b935fce 100644
  }
 diff --git a/Userland/Libraries/LibCore/FileWatcherBsd.cpp b/Userland/Libraries/LibCore/FileWatcherBsd.cpp
 new file mode 100644
-index 0000000000..4224df5aef
+index 0000000000..59e87efe45
 --- /dev/null
 +++ b/Userland/Libraries/LibCore/FileWatcherBsd.cpp
 @@ -0,0 +1,118 @@
@@ -109,16 +109,16 @@ index 0000000000..4224df5aef
 +    }
 +
 +    auto notifier = TRY(Notifier::try_create(read_fd, Notifier::Type::Read));
-+    auto watcher = adopt_nonnull_ref_or_enomem(new (nothrow) FileWatcher(read_fd, move(notifier)));
-+    if (!watcher) {
++    auto watcher_or_error = adopt_nonnull_ref_or_enomem(new (nothrow) FileWatcher(read_fd, move(notifier)));
++    if (watcher_or_error.is_error()) {
 +        ::close(write_fd);
 +        return Error::from_errno(ENOMEM);
 +    }
 +
 +    // Keep the write end open for the object's lifetime (closed in ~FileWatcher)
 +    // so the read end never reaches EOF and keeps the notifier dormant.
-+    watcher->m_inert_pipe_write_fd = write_fd;
-+    return watcher;
++    watcher_or_error.value()->m_inert_pipe_write_fd = write_fd;
++    return watcher_or_error;
 +}
 +
 +FileWatcher::FileWatcher(int watcher_fd, NonnullRefPtr<Notifier> notifier)
