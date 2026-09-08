@@ -118,15 +118,19 @@ jobs:
             ctest_rc=${PIPESTATUS[0]}
             set -e
             if [ "$ctest_rc" -ne 0 ]; then
-                # Emit failure detail as check-run annotations, readable via the public API without
-                # Actions-log access (log download needs admin rights). LibTest prints each failed
-                # assertion as "FAIL: <file>:<line>: ...", which pinpoints the exact test case.
-                echo "::error title=FreeBSD ctest failed (rc=$ctest_rc)::$(grep -cE '\*\*\*Failed' Build/ctest-full.log) test(s) failed; details in annotations"
-                grep -E '^[[:space:]]+[0-9]+ - .*Failed' Build/ctest-full.log | while IFS= read -r l; do
-                    echo "::error title=failing-test::$(printf '%s' "$l" | sed 's/^[[:space:]]*//')"
-                done
-                grep -E "FAIL:" Build/ctest-full.log | head -80 | while IFS= read -r l; do
-                    echo "::error title=fail-detail::$(printf '%s' "$l" | cut -c1-250)"
-                done
+                # Push the full ctest output to a diagnostics branch so failures are readable without
+                # Actions-log access (log download needs admin rights). An explicit token URL is used
+                # because the checkout's remote may not carry push credentials inside the SSH'd VM.
+                cd "$GITHUB_WORKSPACE" 2>/dev/null || true
+                git config user.email "serenade-ci@users.noreply.github.com" 2>/dev/null || true
+                git config user.name "SerenaDE CI diagnostics" 2>/dev/null || true
+                cp Build/ctest-full.log ci-freebsd-ctest.log 2>/dev/null || true
+                if [ -f ci-freebsd-ctest.log ]; then
+                    {
+                        git add ci-freebsd-ctest.log
+                        git commit -q -m "ci: FreeBSD ctest output (diagnostics, do not merge)"
+                        git push -q --force "https://x-access-token:${GITHUB_TOKEN}@github.com/stuffandahalf/SerenaDE.git" "HEAD:refs/heads/ci-diagnostics"
+                    } 2>&1 | tail -8 || echo "NOTE: diagnostic push failed (non-fatal)"
+                fi
             fi
             exit "$ctest_rc"
