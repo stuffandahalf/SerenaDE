@@ -75,6 +75,7 @@ jobs:
         uses: vmactions/freebsd-vm@v1
         with:
           release: "15" # newest stable line; gives the best shot at a recent-enough clang for C++26
+          envs: 'GITHUB_TOKEN' # forward the token into the VM so the failure handler can push diagnostics
           prepare: |
             pkg install -y bash cmake ninja git curl ca_root_nss pkgconf libX11 libXext coreutils
             # Self-consistent LLVM (matching clang + ld.lld). Serenity's use_linker.cmake auto-detects
