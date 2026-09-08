@@ -103,19 +103,31 @@ jobs:
               -DCMAKE_C_COMPILER="$CLANG" -DCMAKE_CXX_COMPILER="$CLANGXX" \
               -DSERENITY_SOURCE_DIR="$GITHUB_WORKSPACE/deps/serenity"
             cmake --build Build
-            # Run the suite; on failure, surface the runtime logs (the VM workspace is not retained as an
-            # artifact) so a WindowServer/app crash or stall is diagnosable from this Actions log.
+            # Permission-based tests (SFTP no_permission, SQL unreadable-file) assume a non-root user;
+            # this VM runs as root, which bypasses those checks. Run ctest as a dedicated unprivileged
+            # user so they behave like Linux CI's 'runner' user. The build above stays as root.
+            adduser -m -D tester 2>/dev/null || true
+            chown -R tester "$GITHUB_WORKSPACE/Build"
+            # Run the suite; on failure, push the full ctest output to a diagnostics branch (the VM
+            # workspace is not retained and Actions logs need admin rights to download).
             set +e
-            ctest --test-dir Build --output-on-failure
-            ctest_rc=$?
+            su -s /bin/sh tester -c "cd '$GITHUB_WORKSPACE' && ctest --test-dir Build --output-on-failure" 2>&1 | tee "$GITHUB_WORKSPACE/Build/ctest-full.log"
+            ctest_rc=${PIPESTATUS[0]}
             set -e
             if [ "$ctest_rc" -ne 0 ]; then
-                # Re-run one simple GUI test in isolation so its logs are fresh and unambiguous, then dump them.
-                echo "===== ctest FAILED (rc=$ctest_rc); re-running m1-headless-analog-clock for diagnostics ====="
-                ctest --test-dir Build -R '^m1-headless-analog-clock-screenshot$' --output-on-failure || true
+                echo "===== ctest FAILED (rc=$ctest_rc); pushing full output to ci-diagnostics branch ====="
+                cd "$GITHUB_WORKSPACE"
+                git config user.email "serenade-ci@users.noreply.github.com"
+                git config user.name "SerenaDE CI diagnostics"
+                cp Build/ctest-full.log ci-freebsd-ctest.log
+                {
+                    git add ci-freebsd-ctest.log
+                    git commit -q -m "ci: FreeBSD ctest output (diagnostics, do not merge)"
+                    git push -q --force origin "HEAD:refs/heads/ci-diagnostics"
+                } 2>&1 | tail -5 || echo "NOTE: diagnostic push failed (non-fatal)"
                 for f in serenade-windowserver.log serenade-app.log; do
                     echo "----- Build/tests/$f -----"
-                    tail -n 200 "Build/tests/$f" 2>/dev/null || echo "(missing)"
+                    tail -n 60 "Build/tests/$f" 2>/dev/null || echo "(missing)"
                     echo
                 done
             fi
