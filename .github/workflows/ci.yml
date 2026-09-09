@@ -72,10 +72,11 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Build + test in a real FreeBSD VM
+        id: freebsd-vm
         uses: vmactions/freebsd-vm@v1
+        continue-on-error: true # let the host-side diagnostic step run even when the tests fail
         with:
           release: "15" # newest stable line; gives the best shot at a recent-enough clang for C++26
-          envs: 'GITHUB_TOKEN' # forward the token into the VM so the failure handler can push diagnostics
           prepare: |
             pkg install -y bash cmake ninja git curl ca_root_nss pkgconf libX11 libXext coreutils
             # Self-consistent LLVM (matching clang + ld.lld). Serenity's use_linker.cmake auto-detects
@@ -107,31 +108,37 @@ jobs:
               -DSERENITY_SOURCE_DIR="$GITHUB_WORKSPACE/deps/serenity"
             cmake --build Build
             # Run the suite as root (GUI tests work fine as root; a non-root user hangs on WindowServer
-            # readiness). A timeout caps the test phase so a stuck test can't hang the job forever. On
-            # failure, push the full ctest output to a diagnostics branch (the VM workspace is not retained
-            # and Actions logs need admin rights to download).
+            # readiness). A timeout caps the test phase so a stuck test can't hang the job forever. The full
+            # output is written to Build/ctest-full.log, which vmactions copies back to the host for the
+            # diagnostic step below (Actions logs need admin rights to download).
             set +e
             if command -v timeout >/dev/null 2>&1; then
                 timeout 1800 ctest --test-dir Build --output-on-failure 2>&1 | tee "$GITHUB_WORKSPACE/Build/ctest-full.log"
             else
                 ctest --test-dir Build --output-on-failure 2>&1 | tee "$GITHUB_WORKSPACE/Build/ctest-full.log"
             fi
-            ctest_rc=${PIPESTATUS[0]}
-            set -e
-            if [ "$ctest_rc" -ne 0 ]; then
-                # Push the full ctest output to a diagnostics branch so failures are readable without
-                # Actions-log access (log download needs admin rights). An explicit token URL is used
-                # because the checkout's remote may not carry push credentials inside the SSH'd VM.
-                cd "$GITHUB_WORKSPACE" 2>/dev/null || true
-                git config user.email "serenade-ci@users.noreply.github.com" 2>/dev/null || true
-                git config user.name "SerenaDE CI diagnostics" 2>/dev/null || true
-                cp Build/ctest-full.log ci-freebsd-ctest.log 2>/dev/null || true
-                if [ -f ci-freebsd-ctest.log ]; then
-                    {
-                        git add ci-freebsd-ctest.log
-                        git commit -q -m "ci: FreeBSD ctest output (diagnostics, do not merge)"
-                        git push -q --force "https://x-access-token:${GITHUB_TOKEN}@github.com/stuffandahalf/SerenaDE.git" "HEAD:refs/heads/ci-diagnostics"
-                    } 2>&1 | tail -8 || echo "NOTE: diagnostic push failed (non-fatal)"
-                fi
-            fi
-            exit "$ctest_rc"
+            exit "${PIPESTATUS[0]}"
+
+      - name: Publish FreeBSD ctest failure detail (annotations + ci-diagnostics branch)
+        if: steps.freebsd-vm.outcome == 'failure'
+        run: |
+          # The VM's Build/ctest-full.log is synced back to the host by vmactions (copyback). Surface the
+          # failing test cases as annotations so they're readable without Actions-log access. LibTest prints
+          # each failed assertion as "FAIL: <file>:<line>: ...", which pinpoints the exact test case.
+          if [ ! -f Build/ctest-full.log ]; then
+            echo "NOTE: Build/ctest-full.log was not copied back from the VM; nothing to publish"
+            exit 0
+          fi
+          grep -E "FAIL:|The following tests FAILED|^[[:space:]]+[0-9]+ - .*Failed" Build/ctest-full.log \
+            | head -80 | while IFS= read -r l; do echo "::error title=freebsd-ctest::$l"; done
+          # Also push the full log to a diagnostics branch (readable via git). The host runner has the token.
+          cp Build/ctest-full.log ci-freebsd-ctest.log
+          git config user.email "serenade-ci@users.noreply.github.com"
+          git config user.name "SerenaDE CI diagnostics"
+          git add ci-freebsd-ctest.log
+          git commit -m "ci: FreeBSD ctest output (diagnostics, do not merge)"
+          git push --force origin "HEAD:refs/heads/ci-diagnostics" || echo "NOTE: branch push failed (annotations still posted)"
+
+      - name: Fail the job if the FreeBSD tests failed
+        if: steps.freebsd-vm.outcome == 'failure'
+        run: exit 1
