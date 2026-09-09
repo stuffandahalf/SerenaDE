@@ -76,6 +76,7 @@ struct Options {
     int width = 1024;
     int height = 768;
     int scale = 1; // HiDPI scale factor: physical = logical * scale (written to the WS config)
+    const char* cursor_theme = "Default"; // [Mouse] CursorTheme in the WS config ($SERENITY_RES/cursor-themes/<name>)
     Service services[max_service_count];
     int service_count = 0;
     const char* input_root = nullptr;
@@ -96,7 +97,7 @@ struct Options {
 [[noreturn]] void usage(const char* program)
 {
     fprintf(stderr,
-        "Usage: %s --res <Base/res> --screenshot <out.png> [--delay <ms>] [--width <n>] [--height <n>] [--scale <n>] [--log-dir <dir>]\n"
+        "Usage: %s --res <Base/res> --screenshot <out.png> [--delay <ms>] [--width <n>] [--height <n>] [--scale <n>] [--cursor-theme <name>] [--log-dir <dir>]\n"
         "              [--service <socket-path>=<binary>]...\n"
         "              [--input-root <dir>] [--script <file>] [--home <dir>]\n"
         "              [--co-app <binary>] [--co-app-delay <ms>]\n"
@@ -129,6 +130,8 @@ void parse_args(int argc, char** argv, Options& options)
             options.height = atoi(next());
         else if (!strcmp(arg, "--scale"))
             options.scale = atoi(next());
+        else if (!strcmp(arg, "--cursor-theme"))
+            options.cursor_theme = next();
         else if (!strcmp(arg, "--log-dir"))
             options.log_dir = next();
         else if (!strcmp(arg, "--service")) {
@@ -340,7 +343,7 @@ int reap(pid_t pid)
     return -1;
 }
 
-void write_window_server_config(const char* log_dir, int width, int height, int scale, const char* mode)
+void write_window_server_config(const char* log_dir, int width, int height, int scale, const char* cursor_theme, const char* mode)
 {
     char path[4096];
     snprintf(path, sizeof(path), "%s/serenade-WindowServer.ini", log_dir);
@@ -360,8 +363,10 @@ void write_window_server_config(const char* log_dir, int width, int height, int 
         "Top=0\n"
         "Width=%d\n"
         "Height=%d\n"
-        "ScaleFactor=%d\n",
-        mode, width, height, scale);
+        "ScaleFactor=%d\n"
+        "[Mouse]\n"
+        "CursorTheme=%s\n",
+        mode, width, height, scale, cursor_theme);
     fclose(file);
     setenv("WINDOW_SERVER_CONFIG", path, 1);
 }
@@ -759,7 +764,7 @@ int main(int argc, char** argv)
     setenv("WINDOW_SERVER_SCREENSHOT", options.screenshot_path, 1);
     if (options.home)
         setenv("HOME", options.home, 1); // apps read $HOME for config and default paths
-    write_window_server_config(options.log_dir, options.width, options.height, options.scale,
+    write_window_server_config(options.log_dir, options.width, options.height, options.scale, options.cursor_theme,
         options.x11 ? "X11" : "Virtual");
 
     // Create the input FIFOs before WindowServer starts: its device scan runs
