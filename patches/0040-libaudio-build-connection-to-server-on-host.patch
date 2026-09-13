@@ -1,0 +1,52 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory@serenade.local>
+Date: Sun, 13 Sep 2026 01:42:41 +0000
+Subject: [PATCH 40] LibAudio: Build ConnectionToServer on host systems
+
+Apps that play audio through AudioServer (e.g. Piano) use
+ConnectionToServer, which was only compiled for Serenity itself. Compile it
+(and the generated endpoint headers it needs) on hosts as well. Provide a
+THREAD_PRIORITY_MAX fallback where the kernel API header does not define
+it.
+--- a/Userland/Libraries/LibAudio/CMakeLists.txt
++++ b/Userland/Libraries/LibAudio/CMakeLists.txt
+@@ -13,18 +13,19 @@
+     QOATypes.cpp
+     UserSampleQueue.cpp
+     VorbisComment.cpp
++    ConnectionToServer.cpp
++)
++
++set(GENERATED_SOURCES
++    ../../Services/AudioServer/AudioClientEndpoint.h
++    ../../Services/AudioServer/AudioServerEndpoint.h
++    ../../Services/AudioServer/AudioManagerClientEndpoint.h
++    ../../Services/AudioServer/AudioManagerServerEndpoint.h
+ )
+ 
+ if (SERENITYOS)
+-    list(APPEND SOURCES ConnectionToServer.cpp)
+     list(APPEND SOURCES ConnectionToManagerServer.cpp)
+     list(APPEND SOURCES PlaybackStreamSerenity.cpp)
+-    set(GENERATED_SOURCES
+-        ../../Services/AudioServer/AudioClientEndpoint.h
+-        ../../Services/AudioServer/AudioServerEndpoint.h
+-        ../../Services/AudioServer/AudioManagerClientEndpoint.h
+-        ../../Services/AudioServer/AudioManagerServerEndpoint.h
+-    )
+ endif()
+ 
+ if (HAVE_PULSEAUDIO)
+--- a/Userland/Libraries/LibAudio/ConnectionToServer.cpp
++++ b/Userland/Libraries/LibAudio/ConnectionToServer.cpp
+@@ -20,6 +20,10 @@
+ #include <sched.h>
+ #include <time.h>
+ 
++#ifndef THREAD_PRIORITY_MAX
++#    define THREAD_PRIORITY_MAX 99
++#endif
++
+ namespace Audio {
+ 
+ ConnectionToServer::ConnectionToServer(NonnullOwnPtr<Core::LocalSocket> socket)

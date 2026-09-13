@@ -20,12 +20,59 @@ Living tracker. Update in the same commit as the work it describes, and keep
  | App subset (Terminal, FileManager, Settings, ImageViewer, PixelPaint) | M4 | done | All five build & render on host: Terminal + FileManager (patches 0013–0018; Terminal via golden test, FileManager via functional `--expect-window` check since its window has host-dependent content); cross-app copy/paste via clip-copy/clip-paste + launcher `--co-app` (`m4-clipboard-cross-app`); Settings (patch 0023, links only already-built libs) with a panel-grid golden (`m4-settings`); ImageViewer (patch 0024, wires `LibFileSystemAccessClient` + generated IPC headers into Lagom) with an empty-window golden (`m4-imageviewer`); PixelPaint (patch 0025, apps list + GML include path + a latent `build_cursor` OOB-write fix) with an empty-document golden (`m4-pixelpaint`). All 3 M4 exit criteria pass. Note: ImageViewer/PixelPaint render their empty state on host; actually opening/decoding images still needs the FileSystemAccess/ImageDecoder services, not yet wired (an M6-adjacent task, not an M4 exit criterion) |
 | Taskbar / desktop UI               | M4        | done        | Real Serenity Taskbar builds under Lagom (patches 0019–0021: heavy `<WindowServer/Window.h>` include swapped for a light `WMEventMask.h`; `$SERENADE_APP_DIR` app-dir override so the dock lists apps with real executables; `Process::spawn` working-dir via portable `..._np` chdir). Launch-from-desktop proven two ways: `m4-launch-terminal` (LaunchServer IPC) and `m4-taskbar-launch` (scripted click on the Terminal quick-launch dock icon → the Taskbar's own spawn path opens a real window) |
  | FreeBSD support                    | M5        | in progress | Shim is already BSD-clean (X11/XShm only; no evdev/epoll//proc). Portability audit found + fixed the glibc-only `posix_spawn` features that break the FreeBSD build: patch 0026 (Process::spawn `..._addchdir_np` → Serenity/glibc gate + portable fork/chdir/exec fallback) patch 0027 (FileManager's raw spawn setpgroup + chdir, gated to Serenity/glibc), patch 0028 (skip LLD/mold auto-selection on FreeBSD — the toolchain rejects `CMAKE_LINKER_TYPE lld`), patch 0029 (portable `<sys/sysmacros.h>` include in gpu.h for BSDs), patch 0030 (skip `prctl` in CrashTest on BSDs), patch 0031 (same for test262-runner), patch 0032 (declare `environ` in FileManager), patch 0033 (declare Terminal's `forkpty` directly on BSDs), patch 0034 (explicit signal.h/sys/wait.h in wait tests), and patch 0035 (link libutil for Terminal). The `build-freebsd` CI job boots a real FreeBSD VM via **vmactions/freebsd-vm** on a hosted `ubuntu-latest` runner (no self-hosted machine needed), installs a self-consistent pkg LLVM, and fetches the pinned Serenity source in-VM. The full build + link now succeeds on FreeBSD (patches 0026–0035 cleared every compile/link blocker; C++26 compiles under the VM's clang 19, so the earlier "needs Clang 22" worry was overblown). Patch 0036 then fixed a *runtime* crash: WindowServer's EventLoop (and Taskbar/ConfigServer/etc.) call `MUST(Core::FileWatcher::create())` and died because LibCore had no *BSD FileWatcher backend — it now ships an inert one (`FileWatcherBsd.cpp`), and patch 0037 skips the two root-only permission test cases. The CI job also pushes full `ctest --output-on-failure` output to a `ci-diagnostics` branch on failure (Actions logs need admin rights to download) so remaining failures are diagnosable |
-| NetworkServer / AudioServer shims  | M6        | not started | Unblocks Browser/Mail/games |
+| Audio host backend (PulseAudio)    | M6        | done        | No shim needed: networking/spawning are direct syscalls in this pin. AudioServer routes mixed output through a `pa_simple` sink on hosts (patch 0038, gated on `HAVE_PULSEAUDIO`; CI installs `libpulse-dev`), builds on host (0039); LibAudio's `ConnectionToServer` compiles on hosts (0040); Lagom gains LibDSP + Piano (0041); `Thread::set_priority` before `start()` no longer segfaults under glibc (0042). Launcher groups `--service` entries by binary so AudioServer gets both its sockets in one process. `m6-piano-audio` proves click → DSP → IPC (fd transfer) → Pulse end-to-end by recording the sink's `.monitor` source; skips without a running PulseAudio |
+| Browser services on host           | M6        | not started | ImageDecoder/RequestServer/WebContent need Lagom wiring; their `compile_ipc` calls collide with the client libs' codegen (duplicate `generate_*Endpoint.h` targets) — plan is `if (SERENITYOS)` guards on the service side. Exit: "Browser loads web pages" |
 
 ## Porting log
 
 Record discoveries here as they happen (surprising `#ifdef` gaps, API quirks,
  decisions with trade-offs). Newest first.
+
+ - 2026-09-13 — **M6: audio plays in a game (Piano → AudioServer → PulseAudio).**
+    Scope-shrinking finding first: this Serenity pin needs **no NetworkServer or
+    SystemServer shim**. `Core::Socket` is raw BSD sockets (`socket()`/`connect()`,
+    DNS via `getaddrinfo()`) and process spawning is direct `posix_spawn`
+    (`Core::Process::spawn`, `IPCProcess::spawn_and_connect_to_process`); the
+    "server" services are not in either data path. Two real work items remained:
+    host audio, and Lagom patches for the Browser binaries (next).
+
+    The audio path had four distinct bugs stacked on top of each other, each
+    masked by the next:
+    1. **AudioServer had no host output.** `Mixer` wrote to `/dev/audio`, which
+       doesn't exist off-Serenity — mixed samples were silently dropped. Patch
+       0038 adds a `pa_simple` S16LE-stereo sink (matching the mixer format) on
+       hosts, split by `AK_OS_SERENITY`/`HAVE_PULSEAUDIO`. The sample-rate
+       accessors report the fixed host rate instead of ioctl'ing a missing
+       device. Gating matters: CI images may lack Pulse headers, so the backend
+       degrades to a no-op write rather than breaking the build.
+    2. **AudioServer hung on any startup error.** `~Mixer` destroyed its sound
+       thread while it was still blocked in `mix()`'s condition wait; `~Thread`
+       then joined it forever (observed when the second socket takeover failed).
+       Patch 0038 also sets a shutdown flag under the mixer mutex, signals, and
+       joins before freeing the sink.
+    3. **Piano segfaulted in glibc.** It calls `Thread::set_priority()` *before*
+       `start()`; the default-constructed `pthread_t` is 0, and glibc's
+       `pthread_setschedparam` dereferences that value as a TCB pointer →
+       SIGSEGV inside libc. Serenity's own LibC returns a clean syscall error
+       for the same call, so only hosts crashed. Patch 0042 defers the priority
+       to just after `pthread_create()` (and reports it from `get_priority()`
+       while Startable).
+    4. **The launcher spawned one process per `--service` socket.** AudioServer
+       owns *two* sockets (`audio` + `audiomanager`) and takes both over in one
+       process, exactly like SystemServer hands them out; two processes each
+       missing the other's socket both died ("Non-existent socket requested").
+       The launcher now groups service entries by binary and passes all of a
+       group's sockets on consecutive fds from 3 via `SOCKET_TAKEOVER`
+       (`spawn_with_takeover` already supported multi-fd for WindowServer).
+
+    Verification is functional, not golden: `m6-piano-audio`
+    (`tests/scripts/piano-audio.sh`) runs the full session (WindowServer + Piano
+    with Config/Clipboard/Audio services), holds a keyboard key 3s via scripted
+    input, records the default sink's automatic `.monitor` source with `parec`
+    for the whole run, and asserts ≥2 seconds of RMS > 500 — i.e. click → Piano
+    DSP → AudioServer IPC (including the `AnonymousBuffer` fd transfer over
+    SCM_RIGHTS in `set_buffer`) → PulseAudio all worked. It skips (77) when no
+    usable PulseAudio is present, so sound-less CI images stay green.
 
  - 2026-09-08 — **M5: FreeBSD test fix — skip permission-sensitive cases when running as root (patch 0037).**
     With the build and WindowServer working, the only remaining FreeBSD failures were two unit tests that

@@ -303,8 +303,42 @@ stub's ENOTSUP; patch 0036 adds an inert *BSD backend (`FileWatcherBsd.cpp`) so 
 The last failures were two root-only permission tests (`TestSFTPStat::no_permission`,
 `TestSqlDatabase::create_from_unreadable_file`); running the suite as a non-root user hung a GUI test, so
 patch 0037 keeps ctest as root and skips those cases when `getuid() == 0`. The CI job pushes full ctest
-output to a `ci-diagnostics` branch on failure for diagnosis. Remaining M5: confirm the suite is green in
-the VM, plus the polish items (DPI/scale factors, cursor themes; focus/raise already works).
+output to a `ci-diagnostics` branch on failure for diagnosis. The polish items are done:
+`--scale` (26bd2a9, verified 2x physical-pixel ratio) and `--cursor-theme` (9ac0cec, verified render +
+selection); font coverage and WM focus/raise were verified working against the existing golden tests.
+Remaining M5: confirm the suite is green in the FreeBSD VM — **paused on user request** (the FreeBSD CI
+job was removed in 7ebcda8 while Linux is the focus).
+
+**M6 — in progress (2026-09-13).** Heavy apps. First, an architecture finding that shrank the scope:
+this Serenity version needs **no NetworkServer or SystemServer shim** — `Core::Socket` uses raw BSD
+sockets (`socket()`/`connect()`, DNS via `getaddrinfo()`) and process spawning is direct
+`posix_spawn` (`Core::Process::spawn`, `IPCProcess::spawn_and_connect_to_process`). The "server"
+services are not in the data path at all. Two real work items remained: host audio, and Lagom patches
+for the Browser binaries.
+
+**Audio (done).** AudioServer now routes its mixed output through PulseAudio on hosts (patch 0038 —
+a `pa_simple` S16LE-stereo sink created in `Mixer`, `write_to_device()` backend split by
+`AK_OS_SERENITY`; also stops the mixer thread in `~Mixer`, which previously blocked forever in
+`Thread::join()` on error unwinding). It builds on host (0039); `LibAudio`'s `ConnectionToServer` —
+the client path apps like Piano actually use — now compiles on hosts too, with a `THREAD_PRIORITY_MAX`
+fallback where the kernel header lacks it (0040). Lagom gained LibDSP + Piano (0041; Piano needed the
+binary-dir include path for its GML headers, same pattern as PixelPaint/FileManager). Building Piano
+surfaced a real bug: it calls `Thread::set_priority()` *before* `start()`, and glibc dereferences the
+default-constructed `pthread_t` as a TCB pointer → segfault; patch 0042 defers the priority to just
+after `pthread_create`. The launcher now groups `--service` entries by binary (AudioServer owns both
+the `audio` and `audiomanager` sockets, exactly like SystemServer hands them to one process).
+Verification is functional, not golden: `m6-piano-audio` (`tests/scripts/piano-audio.sh`) brings up the
+full session, holds a keyboard key 3s via scripted input, records the default sink's `.monitor` source
+with `parec` for the whole run, and asserts ≥2 non-silent seconds — i.e. click → Piano DSP → AudioServer
+IPC (including the shared-buffer fd transfer over SCM_RIGHTS) → PulseAudio all worked. Skips (77) on
+hosts without a usable PulseAudio.
+
+**Browser (next).** All Browser libraries already build via Lagom; what remains is building the
+ImageDecoder/RequestServer/WebContent *services* on host, which hit an IPC codegen collision: both a
+client lib and its service call `compile_ipc` for the same endpoints, creating duplicate
+`generate_*Endpoint.h` targets. Plan: guard the service-side `compile_ipc` calls with `if (SERENITYOS)`
+so the client lib's generation is the only one on host; then wire Browser + services into a launcher
+test ("Browser loads web pages").
 
 ## Patch workflow
 

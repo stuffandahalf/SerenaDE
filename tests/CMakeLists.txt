@@ -244,3 +244,24 @@ add_test(NAME m4-taskbar-launch
         $<TARGET_FILE:LaunchServer>
         $<TARGET_FILE:Terminal>)
 set_tests_properties(m4-taskbar-launch PROPERTIES TIMEOUT 90)
+
+# --- M6 --------------------------------------------------------------------
+# Audio plays in a game (M6 exit criterion). The driver script brings up the
+# real session (WindowServer + Piano, with ConfigServer/Clipboard/AudioServer
+# as services), holds a keyboard key down for 3s via scripted input, and
+# records the default PulseAudio sink's .monitor source for the whole run. It
+# asserts the capture contains non-silent audio -- only possible if the full
+# path works: click -> Piano DSP -> AudioServer IPC (shared-buffer fd transfer)
+# -> PulseAudio. Skips when the host has no usable PulseAudio.
+add_test(NAME m6-piano-audio
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/piano-audio.sh
+        $<TARGET_FILE:serenade-launcher>
+        ${SERENITY_SOURCE_DIR}/Base/res
+        ${CMAKE_CURRENT_BINARY_DIR}/m6-piano.png
+        ${CMAKE_CURRENT_BINARY_DIR}
+        $<TARGET_FILE:WindowServer>
+        $<TARGET_FILE:Piano>
+        $<TARGET_FILE:ConfigServer>
+        $<TARGET_FILE:Clipboard>
+        $<TARGET_FILE:AudioServer>)
+set_tests_properties(m6-piano-audio PROPERTIES TIMEOUT 120)

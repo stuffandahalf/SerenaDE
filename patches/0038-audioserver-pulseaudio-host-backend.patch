@@ -1,0 +1,215 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory@serenade.local>
+Date: Sun, 13 Sep 2026 01:42:41 +0000
+Subject: [PATCH 38] AudioServer: Route mixed output through PulseAudio on host systems
+
+On a host there is no /dev/audio; the mixer's output was silently dropped.
+Create a pa_simple sink (S16LE stereo, matching the mixer's format) in the
+Mixer constructor and write the mixed frames to it from write_to_device().
+The device sample rate accessors report the fixed host rate instead of
+ioctl'ing a missing device.
+
+Also stop the mixer thread in ~Mixer: it loops on a condition variable that
+nothing ever signals, so destroying the Mixer while the thread is running
+blocked forever in Thread::join() (observed when socket takeover fails and
+serenity_main unwinds).
+--- a/Userland/Services/AudioServer/Mixer.h
++++ b/Userland/Services/AudioServer/Mixer.h
+@@ -14,6 +14,7 @@
+ #include <AK/Badge.h>
+ #include <AK/ByteBuffer.h>
+ #include <AK/Debug.h>
++#include <AK/Platform.h>
+ #include <AK/Queue.h>
+ #include <AK/RefCounted.h>
+ #include <AK/WeakPtr.h>
+@@ -51,7 +52,7 @@
+         return adopt_nonnull_ref_or_enomem(new (nothrow) Mixer(move(config), move(device)));
+     }
+ 
+-    virtual ~Mixer() override = default;
++    virtual ~Mixer() override;
+ 
+     NonnullRefPtr<ClientAudioStream> create_queue(ConnectionFromClient&);
+ 
+@@ -75,11 +76,15 @@
+     Threading::ConditionVariable m_mixing_necessary { m_pending_mutex };
+ 
+     OwnPtr<Core::File> m_device;
++#if !defined(AK_OS_SERENITY) && defined(HAVE_PULSEAUDIO)
++    void* m_pulse { nullptr }; // pa_simple* when running on a host audio backend
++#endif
+     mutable Optional<u32> m_cached_sample_rate {};
+ 
+     NonnullRefPtr<Threading::Thread> m_sound_thread;
+ 
+     bool m_muted { false };
++    bool m_shutdown { false };
+     FadingProperty<double> m_main_volume { 1 };
+ 
+     NonnullRefPtr<Core::ConfigFile> m_config;
+@@ -89,6 +94,7 @@
+     Array<u8, HARDWARE_BUFFER_SIZE_BYTES> const m_zero_filled_buffer {};
+ 
+     void mix();
++    void write_to_device(const u8* data, size_t length);
+ };
+ 
+ // Interval in ms when the server tries to save its configuration to disk.
+--- a/Userland/Services/AudioServer/Mixer.cpp
++++ b/Userland/Services/AudioServer/Mixer.cpp
+@@ -10,6 +10,10 @@
+ #include <AK/Format.h>
+ #include <AK/MemoryStream.h>
+ #include <AK/NumericLimits.h>
++#include <AK/Platform.h>
++#if !defined(AK_OS_SERENITY) && defined(HAVE_PULSEAUDIO)
++#include <pulse/simple.h>
++#endif
+ #include <AudioServer/ConnectionFromClient.h>
+ #include <AudioServer/ConnectionFromManagerClient.h>
+ #include <AudioServer/Mixer.h>
+@@ -33,9 +37,36 @@
+     m_muted = m_config->read_bool_entry("Master", "Mute", false);
+     m_main_volume = static_cast<double>(m_config->read_num_entry("Master", "Volume", 100)) / 100.0;
+ 
++#if !defined(AK_OS_SERENITY) && defined(HAVE_PULSEAUDIO)
++    // On a host there is no /dev/audio; route the mixed output through PulseAudio.
++    // The mixer emits S16LE stereo, so match that in the sink's sample spec.
++    static const pa_sample_spec pulse_spec { PA_SAMPLE_S16LE, 44100, 2 };
++    int err = 0;
++    m_pulse = pa_simple_new(nullptr, "serenade-audio", PA_STREAM_PLAYBACK, nullptr, "Serenity Audio", &pulse_spec, nullptr, nullptr, &err);
++    if (!m_pulse)
++        dbgln("AudioServer: failed to open PulseAudio sink: {}", strerror(err));
++#endif
++
+     m_sound_thread->start();
+ }
+ 
++Mixer::~Mixer()
++{
++    // Stop the mixer thread before tearing down the output device, otherwise
++    // it may keep writing (and ~Thread would block forever in join()).
++    {
++        Threading::MutexLocker const locker(m_pending_mutex);
++        m_shutdown = true;
++    }
++    m_mixing_necessary.signal();
++    (void)m_sound_thread->join();
++
++#if !defined(AK_OS_SERENITY) && defined(HAVE_PULSEAUDIO)
++    if (m_pulse)
++        pa_simple_free(static_cast<pa_simple*>(m_pulse));
++#endif
++}
++
+ NonnullRefPtr<ClientAudioStream> Mixer::create_queue(ConnectionFromClient& client)
+ {
+     auto queue = adopt_ref(*new ClientAudioStream(client));
+@@ -58,7 +89,9 @@
+         {
+             Threading::MutexLocker const locker(m_pending_mutex);
+             // While we have nothing to mix, wait on the condition.
+-            m_mixing_necessary.wait_while([this, &active_mix_queues]() { return m_pending_mixing.is_empty() && active_mix_queues.is_empty(); });
++            m_mixing_necessary.wait_while([this, &active_mix_queues]() { return !m_shutdown && m_pending_mixing.is_empty() && active_mix_queues.is_empty(); });
++            if (m_shutdown)
++                return;
+             if (!m_pending_mixing.is_empty()) {
+                 active_mix_queues.extend(move(m_pending_mixing));
+                 m_pending_mixing.clear();
+@@ -95,8 +128,7 @@
+ 
+         // Even though it's not realistic, the user expects no sound at 0%.
+         if (m_muted || m_main_volume < 0.01) {
+-            if (m_device)
+-                m_device->write_until_depleted(m_zero_filled_buffer).release_value_but_fixme_should_propagate_errors();
++            write_to_device(m_zero_filled_buffer.data(), m_zero_filled_buffer.size());
+         } else {
+             FixedMemoryStream stream { m_stream_buffer.span() };
+ 
+@@ -114,13 +146,26 @@
+ 
+             auto buffered_bytes = MUST(stream.tell());
+             VERIFY(buffered_bytes == m_stream_buffer.size());
+-            if (m_device)
+-                m_device->write_until_depleted({ m_stream_buffer.data(), buffered_bytes })
+-                    .release_value_but_fixme_should_propagate_errors();
++            write_to_device(m_stream_buffer.data(), buffered_bytes);
+         }
+     }
+ }
+ 
++void Mixer::write_to_device(const u8* data, size_t length)
++{
++#if defined(AK_OS_SERENITY)
++    if (!m_device)
++        return;
++    m_device->write_until_depleted({ data, length }).release_value_but_fixme_should_propagate_errors();
++#elif defined(HAVE_PULSEAUDIO)
++    if (m_pulse)
++        pa_simple_write(static_cast<pa_simple*>(m_pulse), data, length, nullptr);
++#else
++    (void)data;
++    (void)length;
++#endif
++}
++
+ void Mixer::set_main_volume(double volume)
+ {
+     if (volume < 0)
+@@ -154,6 +199,11 @@
+ 
+ int Mixer::audiodevice_set_sample_rate(u32 sample_rate)
+ {
++#if !defined(AK_OS_SERENITY)
++    // Host backends (PulseAudio) manage their own sample rate; accept the request.
++    (void)sample_rate;
++    return 0;
++#else
+     if (!m_device)
+         return ENOENT;
+ 
+@@ -164,6 +214,7 @@
+     // Therefore, we delete our cache, but for efficency don't immediately read the sample rate back.
+     m_cached_sample_rate = {};
+     return code;
++#endif
+ }
+ 
+ u32 Mixer::audiodevice_get_sample_rate() const
+@@ -171,6 +222,10 @@
+     if (m_cached_sample_rate.has_value())
+         return m_cached_sample_rate.value();
+ 
++#if !defined(AK_OS_SERENITY)
++    // Host backends play at a fixed rate.
++    return 44100;
++#else
+     // We pretend that a non-existent device has a common sample rate (instead of returning something like 0 that would break clients).
+     if (!m_device)
+         return 44100;
+@@ -182,6 +237,7 @@
+     else
+         m_cached_sample_rate = sample_rate;
+     return sample_rate;
++#endif
+ }
+ 
+ void Mixer::request_setting_sync()
+--- a/Userland/Services/AudioServer/CMakeLists.txt
++++ b/Userland/Services/AudioServer/CMakeLists.txt
+@@ -26,3 +26,14 @@
+ 
+ serenity_bin(AudioServer)
+ target_link_libraries(AudioServer PRIVATE LibCore LibThreading LibIPC LibMain)
++
++if (NOT SERENITYOS AND HAVE_PULSEAUDIO)
++    # pa_simple_* lives in a separate libpulse-simple on modern PulseAudio.
++    find_library(PULSE_SIMPLE_LIBRARY NAMES pulse-simple)
++    if (PULSE_SIMPLE_LIBRARY)
++        target_link_libraries(AudioServer PRIVATE ${PULSE_SIMPLE_LIBRARY})
++        target_compile_definitions(AudioServer PRIVATE HAVE_PULSEAUDIO=1)
++    else()
++        message(WARNING "AudioServer: libpulse-simple not found; host audio output will be unavailable")
++    endif()
++endif()

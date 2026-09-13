@@ -1,0 +1,71 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory@serenade.local>
+Date: Sun, 13 Sep 2026 01:42:41 +0000
+Subject: [PATCH 42] LibThreading: Defer set_priority() until the thread is started
+
+Calling set_priority() before start() passed the default-constructed
+pthread_t to pthread_setschedparam(). glibc interprets that value as a TCB
+pointer and dereferences it, segfaulting (Piano sets its pipeline thread's
+priority before starting it). Remember the requested priority while the
+thread is Startable and apply it right after pthread_create(); report the
+pending value from get_priority() in that state instead of crashing.
+--- a/Userland/Libraries/LibThreading/Thread.h
++++ b/Userland/Libraries/LibThreading/Thread.h
+@@ -12,6 +12,7 @@
+ #include <AK/ByteString.h>
+ #include <AK/DistinctNumeric.h>
+ #include <AK/Function.h>
++#include <AK/Optional.h>
+ #include <AK/Result.h>
+ #include <LibCore/EventReceiver.h>
+ #include <pthread.h>
+@@ -82,6 +83,7 @@
+     pthread_t m_tid { 0 };
+     ByteString m_thread_name;
+     Atomic<ThreadState> m_state { ThreadState::Startable };
++    Optional<int> m_pending_priority {};
+ };
+ 
+ template<typename T>
+--- a/Userland/Libraries/LibThreading/Thread.cpp
++++ b/Userland/Libraries/LibThreading/Thread.cpp
+@@ -27,6 +27,15 @@
+ 
+ ErrorOr<void> Thread::set_priority(int priority)
+ {
++    // The thread has not been started yet, so there is no pthread to set the
++    // priority of. Remember the request and apply it from start(). (Calling
++    // pthread_setschedparam with the default-constructed tid is undefined on
++    // some host libcs.)
++    if (m_state == ThreadState::Startable) {
++        m_pending_priority = priority;
++        return {};
++    }
++
+     // MacOS has an extra __opaque field, so list initialization will not compile on MacOS Lagom.
+     sched_param scheduling_parameters {};
+     scheduling_parameters.sched_priority = priority;
+@@ -38,6 +47,9 @@
+ 
+ ErrorOr<int> Thread::get_priority() const
+ {
++    if (m_state == ThreadState::Startable)
++        return m_pending_priority.value_or(0);
++
+     sched_param scheduling_parameters {};
+     int policy;
+     int result = pthread_getschedparam(m_tid, &policy, &scheduling_parameters);
+@@ -102,6 +114,13 @@
+         &NonnullRefPtr(*this).leak_ref());
+ 
+     VERIFY(rc == 0);
++
++    if (m_pending_priority.has_value()) {
++        sched_param scheduling_parameters {};
++        scheduling_parameters.sched_priority = m_pending_priority.release_value();
++        (void)pthread_setschedparam(m_tid, 0, &scheduling_parameters);
++    }
++
+ #ifdef AK_OS_SERENITY
+     if (!m_thread_name.is_empty()) {
+         rc = pthread_setname_np(m_tid, m_thread_name.characters());

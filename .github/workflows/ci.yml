@@ -21,9 +21,11 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
+          # Xlib + XShm (M3); libpulse-dev is the AudioServer host backend (M6).
+          # m6-piano-audio skips itself when no PulseAudio is running.
           sudo apt-get install -y --no-install-recommends \
             cmake ninja-build git wget gpg \
-            libx11-dev libxext-dev # Xlib + XShm (M3)
+            libx11-dev libxext-dev libpulse-dev
 
       # Pin the compiler to Clang 22 from apt.llvm.org. This Serenity pin needs a
       # recent Clang: it relies on __GCC_DESTRUCTIVE_SIZE (AK/Platform.h cache-line

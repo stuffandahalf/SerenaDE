@@ -1,0 +1,34 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory@serenade.local>
+Date: Sun, 13 Sep 2026 01:42:41 +0000
+Subject: [PATCH 41] Lagom: Build LibDSP and the Piano application
+
+Piano is the first audio-playing app; it needs LibDSP for its synthesis
+pipeline. Add both to the Lagom build, and give Piano the binary-dir
+include path its GML-generated headers need (same pattern as PixelPaint
+and FileManager).
+--- a/Meta/Lagom/CMakeLists.txt
++++ b/Meta/Lagom/CMakeLists.txt
+@@ -467,6 +467,7 @@
+         AccelGfx
+         Archive
+         Audio
++        DSP
+         Compress
+         Config
+         Crypto
+@@ -579,6 +580,7 @@
+         add_serenity_subdirectory(Userland/Applications/ImageViewer)
+         add_serenity_subdirectory(Userland/Applications/PixelPaint)
+         add_serenity_subdirectory(Userland/Applications/Settings)
++        add_serenity_subdirectory(Userland/Applications/Piano)
+         add_serenity_subdirectory(Userland/Applications/Terminal)
+ 
+         # Terminal's pty helper is declared as a second target of the Terminal
+--- a/Userland/Applications/Piano/CMakeLists.txt
++++ b/Userland/Applications/Piano/CMakeLists.txt
+@@ -29,3 +29,4 @@
+ 
+ serenity_app(Piano ICON app-piano)
+ target_link_libraries(Piano PRIVATE LibAudio LibCore LibDSP LibGfx LibGUI LibIPC LibMain LibThreading)
++target_include_directories(Piano PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/../..)

@@ -1,0 +1,21 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory@serenade.local>
+Date: Sun, 13 Sep 2026 01:42:41 +0000
+Subject: [PATCH 39] Services: Build AudioServer on host systems
+
+AudioServer is a plain Lagom service (no kernel dependencies); build it
+alongside the other always-built services so host apps such as Piano can
+talk to it over its local socket.
+--- a/Userland/Services/CMakeLists.txt
++++ b/Userland/Services/CMakeLists.txt
+@@ -8,9 +8,9 @@
+ add_subdirectory(Taskbar)
+ add_subdirectory(WebServer)
+ add_subdirectory(WindowServer)
++add_subdirectory(AudioServer)
+ 
+ if (SERENITYOS)
+-    add_subdirectory(AudioServer)
+     add_subdirectory(ChessEngine)
+     add_subdirectory(CrashDaemon)
+     add_subdirectory(DeviceMapper)

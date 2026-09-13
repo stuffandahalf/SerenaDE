@@ -802,22 +802,60 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    for (int i = 0; i < options.service_count; ++i) {
-        auto& service = options.services[i];
-        char log_name[256];
-        snprintf(log_name, sizeof(log_name), "serenade-service-%d.log", i);
-        int service_log = open_log_file(options.log_dir, log_name);
-        char const* const service_argv[] { service.binary, nullptr };
-        int listener_fds[] { service.listener_fd };
-        int takeover_fds[] { 3 };
-        char const* paths[] { service.socket_path };
-        service.child_pid = spawn_with_takeover(service.binary, service_argv,
-            service_log, listener_fds, takeover_fds, paths, 1);
-        if (!wait_for_socket(service.socket_path, 10000)) {
-            fprintf(stderr, "serenade-launcher: service %s did not become ready (see %s/%s)\n",
-                service.socket_path, options.log_dir, log_name);
-            cleanup(options, options.window_server_pid);
-            return 1;
+    // Services that share a binary must run as a single process: Serenity's
+    // SystemServer hands all of a server's sockets to one process via
+    // SOCKET_TAKEOVER (e.g. AudioServer owns both the audio and audiomanager
+    // sockets). Group the service entries by binary and spawn one process per
+    // group, passing every socket in the group on consecutive fds from 3.
+    {
+        int group_count = 0;
+        const char* group_binaries[max_service_count] = {};
+        int group_members[max_service_count][max_service_count];
+        int group_member_count[max_service_count] = {};
+
+        for (int i = 0; i < options.service_count; ++i) {
+            int group = -1;
+            for (int g = 0; g < group_count; ++g) {
+                if (!strcmp(group_binaries[g], options.services[i].binary)) {
+                    group = g;
+                    break;
+                }
+            }
+            if (group < 0) {
+                group = group_count++;
+                group_binaries[group] = options.services[i].binary;
+            }
+            group_members[group][group_member_count[group]++] = i;
+        }
+
+        for (int g = 0; g < group_count; ++g) {
+            int const member_count = group_member_count[g];
+            char log_name[256];
+            snprintf(log_name, sizeof(log_name), "serenade-service-%d.log", group_members[g][0]);
+            int service_log = open_log_file(options.log_dir, log_name);
+            char const* const service_argv[] { group_binaries[g], nullptr };
+            int listener_fds[max_service_count];
+            int takeover_fds[max_service_count];
+            char const* paths[max_service_count];
+            for (int m = 0; m < member_count; ++m) {
+                auto& service = options.services[group_members[g][m]];
+                listener_fds[m] = service.listener_fd;
+                takeover_fds[m] = 3 + m;
+                paths[m] = service.socket_path;
+            }
+            pid_t child_pid = spawn_with_takeover(group_binaries[g], service_argv,
+                service_log, listener_fds, takeover_fds, paths, member_count);
+            for (int m = 0; m < member_count; ++m)
+                options.services[group_members[g][m]].child_pid = child_pid;
+            for (int m = 0; m < member_count; ++m) {
+                auto& service = options.services[group_members[g][m]];
+                if (!wait_for_socket(service.socket_path, 10000)) {
+                    fprintf(stderr, "serenade-launcher: service %s did not become ready (see %s/%s)\n",
+                        service.socket_path, options.log_dir, log_name);
+                    cleanup(options, options.window_server_pid);
+                    return 1;
+                }
+            }
         }
     }
 
