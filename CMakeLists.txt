@@ -45,8 +45,9 @@ include(cmake/ApplyPatches.cmake)
 # Built in-tree from the pinned Serenity source.
 # ---------------------------------------------------------------------------
 set(BUILD_LAGOM ON CACHE BOOL "" FORCE)
-# LibWeb/Ladybird are not needed for the desktop environment and are expensive.
-set(ENABLE_LAGOM_LIBWEB OFF CACHE BOOL "" FORCE)
+# LibWeb is required by the Browser app (M6); it is the most expensive part of
+# the Lagom build, so keep the option visible for anyone trimming a dev build.
+set(ENABLE_LAGOM_LIBWEB ON CACHE BOOL "" FORCE)
 add_subdirectory(${SERENITY_SOURCE_DIR}/Meta/Lagom ${CMAKE_BINARY_DIR}/lagom)
 
 add_subdirectory(src)

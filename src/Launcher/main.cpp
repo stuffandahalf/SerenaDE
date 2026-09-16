@@ -18,6 +18,7 @@
 //                     [--delay <ms>] [--width <n>] [--height <n>]
 //                     [--log-dir <dir>]
 //                     [--service <socket-path>=<binary>]...
+//                     [--broker-service <socket-path>=<binary>]...
 //                     [--input-root <dir>]
 //                     [--script <file>]
 //                     [--golden <png>] [--tolerance <channel-delta>]
@@ -50,6 +51,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
+#include <sys/select.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/un.h>
@@ -79,6 +81,13 @@ struct Options {
     const char* cursor_theme = "Default"; // [Mouse] CursorTheme in the WS config ($SERENITY_RES/cursor-themes/<name>)
     Service services[max_service_count];
     int service_count = 0;
+    // Single-client services (SystemServer model): the launcher accepts the
+    // client's connection and hands the accepted socket to a freshly spawned
+    // service instance, which takes it over via SOCKET_TAKEOVER. Used by
+    // WebContent/RequestServer/ImageDecoder (take_over_accepted_client_from_
+    // system_server), which expect a connected -- not listening -- socket.
+    Service broker_services[max_service_count];
+    int broker_service_count = 0;
     const char* input_root = nullptr;
     const char* script_path = nullptr;
     const char* home = nullptr; // set $HOME for all spawned children (real-session fidelity)
@@ -99,6 +108,7 @@ struct Options {
     fprintf(stderr,
         "Usage: %s --res <Base/res> --screenshot <out.png> [--delay <ms>] [--width <n>] [--height <n>] [--scale <n>] [--cursor-theme <name>] [--log-dir <dir>]\n"
         "              [--service <socket-path>=<binary>]...\n"
+        "              [--broker-service <socket-path>=<binary>]...  (single-client services: the accepted socket is handed to a spawned instance)\n"
         "              [--input-root <dir>] [--script <file>] [--home <dir>]\n"
         "              [--co-app <binary>] [--co-app-delay <ms>]\n"
         "              [--golden <png>] [--tolerance <channel-delta>] [--expect-window <min-fraction>]\n"
@@ -134,15 +144,19 @@ void parse_args(int argc, char** argv, Options& options)
             options.cursor_theme = next();
         else if (!strcmp(arg, "--log-dir"))
             options.log_dir = next();
-        else if (!strcmp(arg, "--service")) {
+        else if (!strcmp(arg, "--service") || !strcmp(arg, "--broker-service")) {
             auto spec = next();
             char* separator = strchr(const_cast<char*>(spec), '=');
-            if (!separator || options.service_count >= max_service_count)
+            bool broker = !strcmp(arg, "--broker-service");
+            Service& target = broker ? options.broker_services[options.broker_service_count]
+                                     : options.services[options.service_count];
+            int& count = broker ? options.broker_service_count : options.service_count;
+            if (!separator || count >= max_service_count)
                 usage(argv[0]);
             *separator = '\0';
-            options.services[options.service_count].socket_path = spec;
-            options.services[options.service_count].binary = separator + 1;
-            ++options.service_count;
+            target.socket_path = spec;
+            target.binary = separator + 1;
+            ++count;
         } else if (!strcmp(arg, "--input-root"))
             options.input_root = next();
         else if (!strcmp(arg, "--script"))
@@ -329,6 +343,87 @@ bool wait_for_file(const char* path, int timeout_ms)
     }
 }
 
+int reap(pid_t pid);
+void kill_and_reap(pid_t pid, int sigterm_timeout_ms = 5000);
+
+// Service instances spawned by broker_wait (SystemServer allows concurrent
+// instances of the same service, one per accepted connection -- e.g. the
+// browser and its WebContent process each hold a RequestServer).
+constexpr int max_broker_children = 32;
+pid_t s_broker_children[max_broker_children] = {};
+int s_broker_child_count = 0;
+
+void kill_and_reap_broker_children()
+{
+    for (int i = 0; i < s_broker_child_count; ++i) {
+        if (s_broker_children[i] > 0)
+            kill_and_reap(s_broker_children[i]);
+    }
+}
+
+// Wait up to timeout_ms, accepting connections on the broker listeners as they
+// arrive and spawning a service instance per connection. Mirrors SystemServer:
+// these services take over an already-accepted client socket (fd 3), so the
+// launcher -- not the service -- owns the listening side. With no brokers this
+// is just a sleep, so existing call sites can use it unconditionally.
+void broker_wait(Options& options, int timeout_ms)
+{
+    if (options.broker_service_count == 0) {
+        sleep_ms(timeout_ms);
+        return;
+    }
+
+    auto deadline = steady_clock_now_ms() + timeout_ms;
+    for (;;) {
+        long remaining = deadline - steady_clock_now_ms();
+        if (remaining <= 0)
+            return;
+
+        fd_set readfds {};
+        int max_fd = -1;
+        for (int i = 0; i < options.broker_service_count; ++i) {
+            auto& broker = options.broker_services[i];
+            if (broker.listener_fd < 0)
+                continue;
+            FD_SET(broker.listener_fd, &readfds);
+            max_fd = max(max_fd, broker.listener_fd);
+        }
+        if (max_fd < 0) {
+            sleep_ms((int)min(remaining, 50L));
+            continue;
+        }
+
+        timeval tv { (suseconds_t)(remaining / 1000), (suseconds_t)((remaining % 1000) * 1000) };
+        int rc = select(max_fd + 1, &readfds, nullptr, nullptr, &tv);
+        if (rc < 0 && errno == EINTR)
+            continue;
+
+        for (int i = 0; i < options.broker_service_count; ++i) {
+            auto& broker = options.broker_services[i];
+            if (broker.listener_fd < 0 || !FD_ISSET(broker.listener_fd, &readfds))
+                continue;
+            int client_fd = accept(broker.listener_fd, nullptr, nullptr);
+            if (client_fd < 0)
+                continue;
+
+            char log_name[256];
+            snprintf(log_name, sizeof(log_name), "serenade-broker-%d.log", i);
+            int broker_log = open_log_file(options.log_dir, log_name);
+            char const* const service_argv[] { broker.binary, nullptr };
+            int listener_fds[] { client_fd };
+            int takeover_fds[] { 3 };
+            char const* paths[] { broker.socket_path };
+            pid_t child_pid = spawn_with_takeover(broker.binary, service_argv,
+                broker_log, listener_fds, takeover_fds, paths, 1);
+            if (s_broker_child_count < max_broker_children)
+                s_broker_children[s_broker_child_count++] = child_pid;
+            // The child has its own copy on fd 3; drop ours so the connection
+            // closes when the service exits.
+            close(client_fd);
+        }
+    }
+}
+
 int reap(pid_t pid)
 {
     int status = 0;
@@ -341,6 +436,31 @@ int reap(pid_t pid)
     if (WIFSIGNALED(status))
         return 128 + WTERMSIG(status);
     return -1;
+}
+
+// Send SIGTERM and wait for the child to exit, escalating to SIGKILL after a
+// bounded timeout. A plain blocking reap() can hang forever if a child never
+// dies (observed in practice: a Browser that ignored SIGTERM kept a whole test
+// run wedged for hours).
+void kill_and_reap(pid_t pid, int sigterm_timeout_ms)
+{
+    if (pid <= 0)
+        return;
+    kill(pid, SIGTERM);
+    auto deadline = steady_clock_now_ms() + sigterm_timeout_ms;
+    for (;;) {
+        int status = 0;
+        pid_t rc = waitpid(pid, &status, WNOHANG);
+        if (rc == pid || (rc < 0 && errno == ECHILD))
+            return; // exited (or was already reaped by a grouped sibling)
+        if (steady_clock_now_ms() >= deadline) {
+            kill(pid, SIGKILL);
+            while (waitpid(pid, &status, 0) < 0 && errno == EINTR)
+                continue;
+            return;
+        }
+        sleep_ms(50);
+    }
 }
 
 void write_window_server_config(const char* log_dir, int width, int height, int scale, const char* cursor_theme, const char* mode)
@@ -705,19 +825,15 @@ bool compare_golden(const char* screenshot_path, const char* golden_path, int to
 
 void cleanup(Options& options, pid_t window_server_pid)
 {
-    for (int i = 0; i < options.service_count; ++i) {
-        if (options.services[i].child_pid > 0)
-            kill(options.services[i].child_pid, SIGTERM);
+    for (int i = 0; i < options.service_count; ++i)
         unlink(options.services[i].socket_path);
-    }
-    if (window_server_pid > 0)
-        kill(window_server_pid, SIGTERM);
-    for (int i = 0; i < options.service_count; ++i) {
-        if (options.services[i].child_pid > 0)
-            reap(options.services[i].child_pid);
-    }
-    if (window_server_pid > 0)
-        reap(window_server_pid);
+    for (int i = 0; i < options.broker_service_count; ++i)
+        unlink(options.broker_services[i].socket_path);
+    kill_and_reap_broker_children();
+    // Grouped services share a pid; kill_and_reap tolerates the duplicates.
+    for (int i = 0; i < options.service_count; ++i)
+        kill_and_reap(options.services[i].child_pid);
+    kill_and_reap(window_server_pid);
     unlink("/tmp/portal/window");
     unlink("/tmp/portal/wm");
 }
@@ -742,6 +858,10 @@ void on_signal(int)
             if (s_options->services[i].child_pid > 0)
                 kill(s_options->services[i].child_pid, SIGKILL);
     }
+    // Broker children are tracked globally (concurrent instances per path).
+    for (int i = 0; i < s_broker_child_count; ++i)
+        if (s_broker_children[i] > 0)
+            kill(s_broker_children[i], SIGKILL);
     _exit(130);
 }
 
@@ -759,6 +879,8 @@ int main(int argc, char** argv)
     int wm_fd = create_listening_socket("/tmp/portal/wm");
     for (int i = 0; i < options.service_count; ++i)
         options.services[i].listener_fd = create_listening_socket(options.services[i].socket_path);
+    for (int i = 0; i < options.broker_service_count; ++i)
+        options.broker_services[i].listener_fd = create_listening_socket(options.broker_services[i].socket_path);
 
     setenv("SERENITY_RES", options.res_root, 1);
     setenv("WINDOW_SERVER_SCREENSHOT", options.screenshot_path, 1);
@@ -865,7 +987,7 @@ int main(int argc, char** argv)
 
     if (options.script_path) {
         // Give the app a moment to create its window before driving it.
-        sleep_ms(1500);
+        broker_wait(options, 1500);
         replay_script(options.script_path, input);
     }
 
@@ -873,14 +995,16 @@ int main(int argc, char** argv)
     if (options.co_app) {
         // Let the primary act first (e.g. publish text to the clipboard), then bring
         // up a second app against the same WindowServer for cross-app tests.
-        sleep_ms(options.co_app_delay_ms);
+        broker_wait(options, options.co_app_delay_ms);
         int co_log = open_log_file(options.log_dir, "serenade-co-app.log");
         char const* const co_argv[] { options.co_app, nullptr };
         co_app_pid = spawn_plain(options.co_app, co_argv, co_log);
         s_co_app_pid = co_app_pid;
     }
 
-    sleep_ms(options.delay_ms);
+    // Wait out the settle delay; also accept brokered-service connections that
+    // arrive during this window (e.g. the app's first IPC connect).
+    broker_wait(options, options.delay_ms);
 
     // Remove any stale screenshot from an earlier run: WindowServer (re)creates the file
     // on SIGUSR1, so a pre-existing file must not satisfy wait_for_file below.
@@ -888,14 +1012,8 @@ int main(int argc, char** argv)
     kill(options.window_server_pid, SIGUSR1);
     bool got_screenshot = wait_for_file(options.screenshot_path, 10000);
 
-    if (app_pid > 0) {
-        kill(app_pid, SIGTERM);
-        reap(app_pid);
-    }
-    if (co_app_pid > 0) {
-        kill(co_app_pid, SIGTERM);
-        reap(co_app_pid);
-    }
+    kill_and_reap(app_pid);
+    kill_and_reap(co_app_pid);
     cleanup(options, options.window_server_pid);
 
     if (!got_screenshot) {

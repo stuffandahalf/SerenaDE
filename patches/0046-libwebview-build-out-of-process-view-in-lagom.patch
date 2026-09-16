@@ -1,0 +1,54 @@
+From d2dc2c7ee3f5f52787f995b056535bbc6423226e Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory@serenade.local>
+Date: Wed, 16 Sep 2026 01:59:48 -0400
+Subject: [PATCH 4/6] LibWebView: Build the out-of-process web view in the
+ Lagom build
+
+OutOfProcessWebView.cpp is what the Browser uses to talk to the
+WebContent service, so it (and its LibFileSystemAccessClient/LibGUI
+dependencies) are needed on host systems as well.
+---
+ Userland/Libraries/LibWebView/CMakeLists.txt | 11 ++---------
+ 1 file changed, 2 insertions(+), 9 deletions(-)
+
+diff --git a/Userland/Libraries/LibWebView/CMakeLists.txt b/Userland/Libraries/LibWebView/CMakeLists.txt
+index e0bff107de..d820e8daad 100644
+--- a/Userland/Libraries/LibWebView/CMakeLists.txt
++++ b/Userland/Libraries/LibWebView/CMakeLists.txt
+@@ -13,6 +13,7 @@ set(SOURCES
+     SourceHighlighter.cpp
+     URL.cpp
+     UserAgent.cpp
++    OutOfProcessWebView.cpp
+     ViewImplementation.cpp
+     WebContentClient.cpp
+     WebSocketClientAdapter.cpp
+@@ -21,10 +22,6 @@ set(SOURCES
+ 
+ set(GENERATED_SOURCES ${CURRENT_LIB_GENERATED})
+ 
+-if (SERENITYOS)
+-    list(APPEND SOURCES OutOfProcessWebView.cpp)
+-endif()
+-
+ embed_as_string(
+     "NativeStyleSheetSource.cpp"
+     "${CMAKE_CURRENT_SOURCE_DIR}/Native.css"
+@@ -50,13 +47,9 @@ set(GENERATED_SOURCES
+ )
+ 
+ serenity_lib(LibWebView webview)
+-target_link_libraries(LibWebView PRIVATE LibCore LibFileSystem LibGfx LibIPC LibProtocol LibJS LibWeb LibSQL LibUnicode LibURL LibSyntax)
++target_link_libraries(LibWebView PRIVATE LibCore LibFileSystem LibGfx LibIPC LibProtocol LibJS LibWeb LibSQL LibUnicode LibURL LibSyntax LibFileSystemAccessClient LibGUI)
+ target_compile_definitions(LibWebView PRIVATE ENABLE_PUBLIC_SUFFIX=$<BOOL:${ENABLE_PUBLIC_SUFFIX_DOWNLOAD}>)
+ 
+-if (SERENITYOS)
+-    target_link_libraries(LibWebView PRIVATE LibFileSystemAccessClient LibGUI)
+-endif()
+-
+ if (NOT SERENITYOS)
+     foreach(header ${GENERATED_SOURCES})
+         get_filename_component(extension ${header} EXT)
+-- 
+2.55.0
+

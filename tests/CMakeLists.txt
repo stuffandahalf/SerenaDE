@@ -265,3 +265,31 @@ add_test(NAME m6-piano-audio
         $<TARGET_FILE:Clipboard>
         $<TARGET_FILE:AudioServer>)
 set_tests_properties(m6-piano-audio PROPERTIES TIMEOUT 120)
+
+# Browser loads a web page (M6 exit criterion). The driver script brings up
+# the real session (WindowServer + Browser, with ConfigServer/Clipboard/
+# LaunchServer/SQLServer as services and WebContent/RequestServer/ImageDecoder
+# as per-connection broker services), serves a marker page from a local
+# python http.server, and asserts both that the server saw the page's GET
+# with a 200 response and that the screenshot contains the page's red block
+# plus text pixels -- only possible if the full path works: Browser ->
+# WebContent (IPC) -> RequestServer (IPC) -> real HTTP fetch -> rendering.
+# Skips when python3 is unavailable.
+add_test(NAME m6-browser-load
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/browser-load.sh
+        $<TARGET_FILE:serenade-launcher>
+        ${SERENITY_SOURCE_DIR}/Base/res
+        ${CMAKE_CURRENT_BINARY_DIR}/m6-browser.png
+        ${CMAKE_CURRENT_BINARY_DIR}
+        $<TARGET_FILE:WindowServer>
+        $<TARGET_FILE:Browser>
+        $<TARGET_FILE:ConfigServer>
+        $<TARGET_FILE:Clipboard>
+        $<TARGET_FILE:LaunchServer>
+        $<TARGET_FILE:SQLServer>
+        $<TARGET_FILE:WebContent>
+        $<TARGET_FILE:RequestServer>
+        $<TARGET_FILE:ImageDecoder>)
+set_tests_properties(m6-browser-load PROPERTIES TIMEOUT 120)
+
+

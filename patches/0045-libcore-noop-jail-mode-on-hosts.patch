@@ -1,0 +1,31 @@
+From ed4534f35cdab7a8173d6754f05ee517ae2e2c4b Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory@serenade.local>
+Date: Wed, 16 Sep 2026 01:59:48 -0400
+Subject: [PATCH 3/6] LibCore: No-op the jail mode entry points on host systems
+
+Apps that enter a Serenity jail before exec (Browser calls
+enter_jail_mode_until_exit() unconditionally) cannot do so on a host
+system; there is no kernel to ask. Provide inert implementations next
+to the existing pledge/unveil no-ops.
+---
+ Userland/Libraries/LibCore/System.h | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/Userland/Libraries/LibCore/System.h b/Userland/Libraries/LibCore/System.h
+index d5d616c1b9..dfbfa3ce1c 100644
+--- a/Userland/Libraries/LibCore/System.h
++++ b/Userland/Libraries/LibCore/System.h
+@@ -79,6 +79,10 @@ inline ErrorOr<void> unveil(StringView, StringView)
+     return {};
+ }
+ inline ErrorOr<void> pledge(StringView, StringView = {}) { return {}; }
++// Hosts have no Serenity jail to enter; apps that call these (e.g. Browser)
++// simply run unsandboxed.
++inline ErrorOr<void> enter_jail_mode_until_exit() { return {}; }
++inline ErrorOr<void> enter_jail_mode_until_exec() { return {}; }
+ #endif
+ 
+ template<size_t N>
+-- 
+2.55.0
+

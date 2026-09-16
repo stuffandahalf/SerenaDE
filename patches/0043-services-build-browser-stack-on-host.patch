@@ -1,0 +1,55 @@
+From 07c5893701477f8a746e96d306137748153d3337 Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory@serenade.local>
+Date: Wed, 16 Sep 2026 01:58:16 -0400
+Subject: [PATCH 1/6] Services: Build ImageDecoder, RequestServer, SQLServer
+ and WebContent on host
+
+These services run natively under the SerenaDE launcher (which pre-binds
+their sockets and hands them over via SOCKET_TAKEOVER), so they must be
+part of the Lagom build like the other host-supported services.
+---
+ Userland/Services/CMakeLists.txt | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/Userland/Services/CMakeLists.txt b/Userland/Services/CMakeLists.txt
+index 47738c04a9..2c4104e8ee 100644
+--- a/Userland/Services/CMakeLists.txt
++++ b/Userland/Services/CMakeLists.txt
+@@ -2,10 +2,14 @@ add_subdirectory(Clipboard)
+ add_subdirectory(ConfigServer)
+ add_subdirectory(EchoServer)
+ add_subdirectory(FileOperation)
++add_subdirectory(ImageDecoder)
+ add_subdirectory(LaunchServer)
+ add_subdirectory(LookupServer)
++add_subdirectory(RequestServer)
++add_subdirectory(SQLServer)
+ add_subdirectory(SSHServer)
+ add_subdirectory(Taskbar)
++add_subdirectory(WebContent)
+ add_subdirectory(WebServer)
+ add_subdirectory(WindowServer)
+ add_subdirectory(AudioServer)
+@@ -15,19 +19,15 @@ if (SERENITYOS)
+     add_subdirectory(CrashDaemon)
+     add_subdirectory(DeviceMapper)
+     add_subdirectory(DHCPClient)
+-    add_subdirectory(ImageDecoder)
+     add_subdirectory(FileSystemAccessServer)
+     add_subdirectory(KeyboardPreferenceLoader)
+     add_subdirectory(LaunchServer)
+     add_subdirectory(LoginServer)
+     add_subdirectory(NetworkServer)
+     add_subdirectory(NotificationServer)
+-    add_subdirectory(RequestServer)
+     add_subdirectory(SpiceAgent)
+-    add_subdirectory(SQLServer)
+     add_subdirectory(SystemServer)
+     add_subdirectory(TelnetServer)
+-    add_subdirectory(WebContent)
+     add_subdirectory(WebDriver)
+     add_subdirectory(WebWorker)
+ endif()
+-- 
+2.55.0
+

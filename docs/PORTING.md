@@ -21,14 +21,85 @@ Living tracker. Update in the same commit as the work it describes, and keep
 | Taskbar / desktop UI               | M4        | done        | Real Serenity Taskbar builds under Lagom (patches 0019–0021: heavy `<WindowServer/Window.h>` include swapped for a light `WMEventMask.h`; `$SERENADE_APP_DIR` app-dir override so the dock lists apps with real executables; `Process::spawn` working-dir via portable `..._np` chdir). Launch-from-desktop proven two ways: `m4-launch-terminal` (LaunchServer IPC) and `m4-taskbar-launch` (scripted click on the Terminal quick-launch dock icon → the Taskbar's own spawn path opens a real window) |
  | FreeBSD support                    | M5        | in progress | Shim is already BSD-clean (X11/XShm only; no evdev/epoll//proc). Portability audit found + fixed the glibc-only `posix_spawn` features that break the FreeBSD build: patch 0026 (Process::spawn `..._addchdir_np` → Serenity/glibc gate + portable fork/chdir/exec fallback) patch 0027 (FileManager's raw spawn setpgroup + chdir, gated to Serenity/glibc), patch 0028 (skip LLD/mold auto-selection on FreeBSD — the toolchain rejects `CMAKE_LINKER_TYPE lld`), patch 0029 (portable `<sys/sysmacros.h>` include in gpu.h for BSDs), patch 0030 (skip `prctl` in CrashTest on BSDs), patch 0031 (same for test262-runner), patch 0032 (declare `environ` in FileManager), patch 0033 (declare Terminal's `forkpty` directly on BSDs), patch 0034 (explicit signal.h/sys/wait.h in wait tests), and patch 0035 (link libutil for Terminal). The `build-freebsd` CI job boots a real FreeBSD VM via **vmactions/freebsd-vm** on a hosted `ubuntu-latest` runner (no self-hosted machine needed), installs a self-consistent pkg LLVM, and fetches the pinned Serenity source in-VM. The full build + link now succeeds on FreeBSD (patches 0026–0035 cleared every compile/link blocker; C++26 compiles under the VM's clang 19, so the earlier "needs Clang 22" worry was overblown). Patch 0036 then fixed a *runtime* crash: WindowServer's EventLoop (and Taskbar/ConfigServer/etc.) call `MUST(Core::FileWatcher::create())` and died because LibCore had no *BSD FileWatcher backend — it now ships an inert one (`FileWatcherBsd.cpp`), and patch 0037 skips the two root-only permission test cases. The CI job also pushes full `ctest --output-on-failure` output to a `ci-diagnostics` branch on failure (Actions logs need admin rights to download) so remaining failures are diagnosable |
 | Audio host backend (PulseAudio)    | M6        | done        | No shim needed: networking/spawning are direct syscalls in this pin. AudioServer routes mixed output through a `pa_simple` sink on hosts (patch 0038, gated on `HAVE_PULSEAUDIO`; CI installs `libpulse-dev`), builds on host (0039); LibAudio's `ConnectionToServer` compiles on hosts (0040); Lagom gains LibDSP + Piano (0041); `Thread::set_priority` before `start()` no longer segfaults under glibc (0042). Launcher groups `--service` entries by binary so AudioServer gets both its sockets in one process. `m6-piano-audio` proves click → DSP → IPC (fd transfer) → Pulse end-to-end by recording the sink's `.monitor` source; skips without a running PulseAudio |
-| Browser services on host           | M6        | not started | ImageDecoder/RequestServer/WebContent need Lagom wiring; their `compile_ipc` calls collide with the client libs' codegen (duplicate `generate_*Endpoint.h` targets) — plan is `if (SERENITYOS)` guards on the service side. Exit: "Browser loads web pages" |
+| Browser services on host           | M6        | done        | ImageDecoder/RequestServer/WebContent (+SQLServer) build on host (patch 0043); service-side `compile_ipc` skipped in Lagom since the client libs already generate the endpoint headers (0044); jail-mode entry points no-op'd for Browser's unconditional pre-exec call (0045); LibWebView out-of-process view + Browser/BrowserSettings apps in Lagom (0046–0048). Launcher gained a `--broker-service` mode: those three services take over an *accepted* client socket (fd 3, one process per connection), so the launcher pre-binds and accept/spawns per connection. Browser needs a seeded `$HOME` (`Base/home/anon`) and a private `XDG_RUNTIME_DIR` (Ladybird singleton state). `m6-browser-load` proves "Browser loads web pages" end-to-end via GET log + screenshot pixel checks; full serial ctest 262/262 |
 
 ## Porting log
 
 Record discoveries here as they happen (surprising `#ifdef` gaps, API quirks,
  decisions with trade-offs). Newest first.
 
- - 2026-09-13 — **M6: audio plays in a game (Piano → AudioServer → PulseAudio).**
+ - 2026-09-16 — **M6: Browser loads web pages.** The second M6 exit criterion is
+    met: `m6-browser-load` brings up WindowServer + the service stack, opens a
+    real URL in the unmodified Browser, and asserts on the rendered screenshot.
+
+    Patches 0043–0048 wire the browser stack into Lagom:
+    - 0043 moves ImageDecoder/RequestServer/SQLServer/WebContent into the
+      always-built Services section (they run natively under the launcher).
+    - 0044 skips their service-side `compile_ipc` in the Lagom build: the client
+      libs (LibImageDecoderClient, LibProtocol/LibWeb, LibWebView, LibSQL)
+      already generate the same endpoint headers, and a second generation is a
+      duplicate-target collision. Under SerenityOS the services keep theirs.
+    - 0045 no-ops `enter_jail_mode_until_exit()`/`exit_jail_mode()` on hosts —
+      Browser calls them unconditionally before exec, and there is no kernel to
+      jail with (next to the existing pledge/unveil no-ops).
+    - 0046 builds `OutOfProcessWebView.cpp` in Lagom (the Browser's WebContent
+      client) with its LibFileSystemAccessClient/LibGUI dependencies.
+    - 0047 adds Browser + BrowserSettings to the Lagom app list and moves
+      LibWebView out of the standard-libraries loop (it links
+      LibFileSystemAccessClient, which only exists once the Services subdir has
+      run) into an explicit `add_subdirectory` after it.
+    - 0048 gives Browser the binary-dir include path for its GML headers (same
+      pattern as PixelPaint/FileManager).
+
+    The launcher gained a **broker model** (`--broker-service <socket>=<binary>`):
+    WebContent/RequestServer/ImageDecoder start with `IPC::take_over_accepted_
+    client_from_system_server()`, i.e. they expect an *already-accepted* client
+    socket on fd 3 — one process per connection, exactly how SystemServer hands
+    them out. The launcher pre-binds the listener, then in a select loop accepts
+    and spawns one service process per incoming connection, passing the accepted
+    socket as the takeover fd (regular `--service` entries keep the raw-listener
+    takeover). Teardown is bounded: `kill_and_reap()` escalates SIGTERM →
+    SIGKILL after 5s, because a stuck child would otherwise hang the launcher in
+    `waitpid` forever (observed live: a Browser that never received its TERM
+    held the whole session open for a day).
+
+    Two environment facts cost real debugging time:
+    - **Browser needs a seeded `$HOME`.** It reads
+      `~/.config/BrowserContentFilters.txt` unconditionally and aborts on the
+      missing file. The test copies `Base/home/anon/` into a private home dir.
+    - **The Browser is a singleton via `$XDG_RUNTIME_DIR/Ladybird.{pid,socket}`.**
+      Stale state from a previous run makes the new process exit ("PID file
+      exists"); it self-heals with a warning, but the test uses a private
+      `XDG_RUNTIME_DIR` so runs are hermetic.
+
+    `m6-browser-load` (`tests/scripts/browser-load.sh`) serves a marker page
+    (solid red block + text) from a local `python3 -m http.server`, waits for
+    the GET in the server log, and pixel-checks the screenshot: ≥3000 sampled
+    red pixels (the red div; a "Load failed" error page yields ~200) and ≥500
+    dark text pixels. The PNG decode is stdlib-only (no PIL in CI) and handles
+    colortype 0/2/6 — `PNGWriter` picks the color type by *content*, so an
+    all-gray screen encodes as grayscale.
+
+    Patch 0049 fixed a pre-existing bug the new build surface exposed: enabling
+    LibWeb in Lagom registered `TestWebViewURL`, which links LibGUI via
+    LibWebView; `Calendar.cpp` loaded four fonts in **static initializers**, so
+    the test crashed at library-load time (`MUST` on a failed `resource://`
+    load — no resource root outside a launcher session). The fonts are now
+    function-local statics loaded on first use. (CMake could not work around
+    this: tests registered in Lagom's subdirectories are invisible to
+    `set_tests_properties` from any SerenaDE scope.)
+
+    Verification: all 49 patches forward-apply on the bare pin in order; the
+    patched tree is byte-identical to the dev tree (modulo one cosmetic line);
+    the browser stack builds and `m6-browser-load` passes from a pristine
+    pin+patches checkout; full serial ctest **262/262**.
+
+    Upstream quirks noted, not host bugs: CSS `font-size` is ignored for the
+    bitmap-only default family (non-exact sizes fall back to the 10px default —
+    vector fonts scale fine), and page content below the window's bottom edge
+    is clipped rather than scrolled.
+
+- 2026-09-13 — **M6: audio plays in a game (Piano → AudioServer → PulseAudio).**
     Scope-shrinking finding first: this Serenity pin needs **no NetworkServer or
     SystemServer shim**. `Core::Socket` is raw BSD sockets (`socket()`/`connect()`,
     DNS via `getaddrinfo()`) and process spawning is direct `posix_spawn`

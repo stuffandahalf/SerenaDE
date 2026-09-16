@@ -1,0 +1,51 @@
+From 5ff7dcc3f00e55f0ae1eb2c3a5137d4ddb515917 Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory@serenade.local>
+Date: Wed, 16 Sep 2026 02:00:41 -0400
+Subject: [PATCH 5/6] Lagom: Build the Browser and order LibWebView after
+ LibFileSystemAccessClient
+
+LibWebView links against LibFileSystemAccessClient (its out-of-process
+web view uses it), so it cannot be built in the standard-libraries loop
+that runs before the Services subdirectory provides WindowServer. Add
+it explicitly after LibFileSystemAccessClient, and build the Browser and
+BrowserSettings applications, which run unmodified on host systems.
+---
+ Meta/Lagom/CMakeLists.txt | 12 +++++++++++-
+ 1 file changed, 11 insertions(+), 1 deletion(-)
+
+diff --git a/Meta/Lagom/CMakeLists.txt b/Meta/Lagom/CMakeLists.txt
+index 4e859f95b4..bfb4114c3d 100644
+--- a/Meta/Lagom/CMakeLists.txt
++++ b/Meta/Lagom/CMakeLists.txt
+@@ -539,7 +539,9 @@ if (BUILD_LAGOM)
+     compile_ipc(${SERENITY_PROJECT_ROOT}/Userland/Services/FileSystemAccessServer/FileSystemAccessServer.ipc Userland/Services/FileSystemAccessServer/FileSystemAccessServerEndpoint.h)
+ 
+     if (ENABLE_LAGOM_LIBWEB)
+-        list(APPEND lagom_standard_libraries Web WebView)
++        # LibWebView is added later (after LibFileSystemAccessClient, which it
++        # links against); see below.
++        list(APPEND lagom_standard_libraries Web)
+ 
+         compile_ipc(${SERENITY_PROJECT_ROOT}/Userland/Services/WebContent/WebContentServer.ipc Userland/Services/WebContent/WebContentServerEndpoint.h)
+         compile_ipc(${SERENITY_PROJECT_ROOT}/Userland/Services/WebContent/WebContentClient.ipc Userland/Services/WebContent/WebContentClientEndpoint.h)
+@@ -572,9 +574,17 @@ if (BUILD_LAGOM)
+         # the compile_ipc calls near the top of this file.
+         add_serenity_subdirectory(Userland/Libraries/LibFileSystemAccessClient)
+ 
++        if (ENABLE_LAGOM_LIBWEB)
++            # LibWebView links against LibFileSystemAccessClient (for its
++            # out-of-process web view), so it must come after it as well.
++            add_serenity_subdirectory(Userland/Libraries/LibWebView)
++        endif()
++
+         # Applications that build unmodified on host systems.
+         add_serenity_subdirectory(Userland/Applications/About)
+         add_serenity_subdirectory(Userland/Applications/AnalogClock)
++        add_serenity_subdirectory(Userland/Applications/Browser)
++        add_serenity_subdirectory(Userland/Applications/BrowserSettings)
+         add_serenity_subdirectory(Userland/Applications/Calculator)
+         add_serenity_subdirectory(Userland/Applications/FileManager)
+         add_serenity_subdirectory(Userland/Applications/ImageViewer)
+-- 
+2.55.0
+

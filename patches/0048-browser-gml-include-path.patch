@@ -1,0 +1,28 @@
+From de8c15ae4f881eaa48f1fda1c6158bd7c511f00a Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory@serenade.local>
+Date: Wed, 16 Sep 2026 02:00:41 -0400
+Subject: [PATCH 6/6] Browser: Add the binary dir to the include path for GML
+ headers
+
+The stringify_gml codegen headers land in the build tree's binary
+directory, and <Applications/Browser/...> includes need it; same pattern
+as PixelPaint, FileManager and Piano.
+---
+ Userland/Applications/Browser/CMakeLists.txt | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/Userland/Applications/Browser/CMakeLists.txt b/Userland/Applications/Browser/CMakeLists.txt
+index 5580ad5734..742c8ad618 100644
+--- a/Userland/Applications/Browser/CMakeLists.txt
++++ b/Userland/Applications/Browser/CMakeLists.txt
+@@ -41,4 +41,7 @@ set(GENERATED_SOURCES
+ )
+ 
+ serenity_app(Browser ICON app-browser)
++# The stringify_gml headers land in the binary dir; <Applications/Browser/...>
++# includes need it (same pattern as PixelPaint, FileManager and Piano).
++target_include_directories(Browser PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/../..)
+ target_link_libraries(Browser PRIVATE LibCore LibWebView LibWeb LibProtocol LibGUI LibDesktop LibConfig LibGfx LibIPC LibJS LibLocale LibMain LibSyntax LibURL)
+-- 
+2.55.0
+

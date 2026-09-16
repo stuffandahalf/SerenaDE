@@ -309,7 +309,8 @@ selection); font coverage and WM focus/raise were verified working against the e
 Remaining M5: confirm the suite is green in the FreeBSD VM — **paused on user request** (the FreeBSD CI
 job was removed in 7ebcda8 while Linux is the focus).
 
-**M6 — in progress (2026-09-13).** Heavy apps. First, an architecture finding that shrank the scope:
+**M6 — complete (2026-09-16).** Heavy apps. Both exit criteria met: audio plays in
+Piano, and Browser loads web pages (`m6-browser-load`). First, an architecture finding that shrank the scope:
 this Serenity version needs **no NetworkServer or SystemServer shim** — `Core::Socket` uses raw BSD
 sockets (`socket()`/`connect()`, DNS via `getaddrinfo()`) and process spawning is direct
 `posix_spawn` (`Core::Process::spawn`, `IPCProcess::spawn_and_connect_to_process`). The "server"
@@ -333,12 +334,24 @@ with `parec` for the whole run, and asserts ≥2 non-silent seconds — i.e. cli
 IPC (including the shared-buffer fd transfer over SCM_RIGHTS) → PulseAudio all worked. Skips (77) on
 hosts without a usable PulseAudio.
 
-**Browser (next).** All Browser libraries already build via Lagom; what remains is building the
-ImageDecoder/RequestServer/WebContent *services* on host, which hit an IPC codegen collision: both a
-client lib and its service call `compile_ipc` for the same endpoints, creating duplicate
-`generate_*Endpoint.h` targets. Plan: guard the service-side `compile_ipc` calls with `if (SERENITYOS)`
-so the client lib's generation is the only one on host; then wire Browser + services into a launcher
-test ("Browser loads web pages").
+**Browser (done).** Patches 0043–0048 build the rest of the stack: ImageDecoder/RequestServer/
+SQLServer/WebContent as always-built host services (0043), with their service-side `compile_ipc`
+skipped in Lagom because the client libs already generate the same endpoint headers (0044);
+no-op'd jail-mode entry points that Browser calls unconditionally before exec (0045); the
+out-of-process web view (0046); and Browser + BrowserSettings in the Lagom app list, with LibWebView
+moved after LibFileSystemAccessClient (0047) plus its GML include path (0048). The launcher gained a
+`--broker-service <socket>=<binary>` mode: those services start from an *accepted* client socket on fd 3
+(one process per connection, as SystemServer hands them out), so the launcher pre-binds the listener and
+accept/spawns per connection; teardown is bounded (`kill_and_reap` escalates TERM→KILL after 5s). Two
+environment facts: Browser needs a seeded `$HOME` (it reads `~/.config/BrowserContentFilters.txt`
+unconditionally — seed from `Base/home/anon`) and a private `XDG_RUNTIME_DIR` (stale
+`Ladybird.{pid,socket}` singleton state otherwise makes the new process exit). Verification is
+functional: `m6-browser-load` (`tests/scripts/browser-load.sh`) serves a marker page locally, asserts the
+GET in the server log, and pixel-checks the screenshot (red block + rendered text; stdlib PNG decode that
+handles content-based colortype 0/2/6). Patch 0049 fixed a latent bug the new build exposed: `Calendar.cpp`
+loaded four fonts in static initializers, crashing any LibGUI-linking process without a resource root at
+library-load time (first hit by `TestWebViewURL`, which Lagom registers once LibWeb is enabled) — the fonts
+are now loaded on first use. Full serial ctest **262/262**; all 49 patches re-verified from a pristine pin.
 
 ## Patch workflow
 
