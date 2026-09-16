@@ -28,7 +28,23 @@ Living tracker. Update in the same commit as the work it describes, and keep
 Record discoveries here as they happen (surprising `#ifdef` gaps, API quirks,
  decisions with trade-offs). Newest first.
 
- - 2026-09-16 — **M6: Browser loads web pages.** The second M6 exit criterion is
+ - 2026-09-16 — **CI fix: wait for the Browser's render instead of a fixed delay;
+    name the skip code explicitly.** The first CI run of `m6-browser-load` failed
+    with "red px sampled: 0" even though its HTTP assertion (GET + 200) passed —
+    the whole fetch path worked, but the screenshot was taken before first paint.
+    A cold two-core runner starts Browser well past the old fixed 15s delay
+    (locally it renders in under 5s, which masked it). The test now runs the
+    launcher in the background with a long deadline and polls: the launcher
+    records WindowServer's pid in `<log-dir>/serenade-windowserver.pid` once WS
+    is ready, the script sends SIGUSR1 (the existing screenshot trigger) every
+    2s and decodes the dump until the red marker block appears, then ends the
+    session with SIGTERM (the launcher's signal handler kills all children). On
+    timeout it dumps the app/broker/http logs to the test output, so a future
+    failure is self-diagnosing. `m6-piano-audio` failed on the same run for a
+    different reason: recent CTest no longer treats exit 77 as "Not Run" unless
+    the test names it — both M6 tests now set `SKIP_RETURN_CODE 77`.
+
+- 2026-09-16 — **M6: Browser loads web pages.** The second M6 exit criterion is
     met: `m6-browser-load` brings up WindowServer + the service stack, opens a
     real URL in the unmodified Browser, and asserts on the rendered screenshot.
 

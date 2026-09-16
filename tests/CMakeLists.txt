@@ -264,7 +264,9 @@ add_test(NAME m6-piano-audio
         $<TARGET_FILE:ConfigServer>
         $<TARGET_FILE:Clipboard>
         $<TARGET_FILE:AudioServer>)
-set_tests_properties(m6-piano-audio PROPERTIES TIMEOUT 120)
+# SKIP_RETURN_CODE is set explicitly: recent CTest no longer treats exit 77 as
+# "Not Run" unless the property names it.
+set_tests_properties(m6-piano-audio PROPERTIES TIMEOUT 120 SKIP_RETURN_CODE 77)
 
 # Browser loads a web page (M6 exit criterion). The driver script brings up
 # the real session (WindowServer + Browser, with ConfigServer/Clipboard/
@@ -290,6 +292,6 @@ add_test(NAME m6-browser-load
         $<TARGET_FILE:WebContent>
         $<TARGET_FILE:RequestServer>
         $<TARGET_FILE:ImageDecoder>)
-set_tests_properties(m6-browser-load PROPERTIES TIMEOUT 120)
+set_tests_properties(m6-browser-load PROPERTIES TIMEOUT 120 SKIP_RETURN_CODE 77)
 
 

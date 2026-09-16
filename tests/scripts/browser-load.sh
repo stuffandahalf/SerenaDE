@@ -75,37 +75,14 @@ until curl -s -o /dev/null "http://127.0.0.1:$port/index.html"; do
     sleep 0.2
 done
 
-"$launcher" \
-    --res "$res" \
-    --screenshot "$shot" \
-    --delay 15000 \
-    --log-dir "$logdir" \
-    --home "$base/home" \
-    --service /tmp/session/0/portal/config="$config" \
-    --service /tmp/session/0/portal/clipboard="$clipboard" \
-    --service /tmp/session/0/portal/launch="$launchsrv" \
-    --service /tmp/session/0/portal/sql="$sql" \
-    --broker-service /tmp/session/0/portal/webcontent="$webcontent" \
-    --broker-service /tmp/session/0/portal/request="$request" \
-    --broker-service /tmp/session/0/portal/image="$image" \
-    "$ws" "$browser" "http://127.0.0.1:$port/index.html"
-
-kill "$http_pid" 2>/dev/null || true
-wait "$http_pid" 2>/dev/null || true
-http_pid=0
-
-# Assert 1: the page was actually fetched over HTTP (and not served from
-# anywhere else or silently failed).
-if ! grep -q "GET /index.html" "$base/httpd.log" || ! grep "GET /index.html" "$base/httpd.log" | grep -q " 200 "; then
-    echo "browser-load: http server log does not show a 200 for the page:"
-    cat "$base/httpd.log"
-    exit 1
-fi
-
-# Assert 2: the screenshot shows the rendered page. The marker page has a
-# 400x250 red block (the only large red area on screen) and text lines; an
-# error page or blank window has neither.
-python3 - "$shot" <<'EOF'
+# Pixel probe: prints "<red> <dark>" counts for a screenshot PNG. Red is
+# counted over the whole image; dark (text) over the page area. The marker
+# page's red block (400x250) samples to ~25k px; the only other red on screen
+# is a ~700 px UI element, so 3000 is a wide margin either way. A rendered
+# page has ~1500+ sampled dark text px; the "Load failed" error page ~100.
+# Prints "0 0" (and exits 0) if the PNG is missing or mid-write, so callers
+# can simply retry.
+cat > "$base/probe.py" <<'EOF'
 import struct
 import sys
 import zlib
@@ -113,7 +90,7 @@ import zlib
 def load_png(path):
     data = open(path, "rb").read()
     if data[:8] != b"\x89PNG\r\n\x1a\n":
-        raise SystemExit("browser-load: not a PNG: %s" % path)
+        return None
     pos = 8
     width = height = bitdepth = colortype = None
     idat = b""
@@ -132,7 +109,7 @@ def load_png(path):
     # a screen with no colored window encodes as grayscale (colortype 0), a
     # rendered page as truecolor (2) or truecolor+alpha (6).
     if bitdepth != 8 or colortype not in (0, 2, 6):
-        raise SystemExit("browser-load: unsupported PNG format (bitdepth=%s colortype=%s)" % (bitdepth, colortype))
+        return None
     channels = {0: 1, 2: 3, 6: 4}[colortype]
     raw = zlib.decompress(idat)
     stride = width * channels
@@ -167,36 +144,121 @@ def load_png(path):
         prev = line
     return width, height, channels, bytes(out)
 
-w, h, ch, px = load_png(sys.argv[1])
+def main():
+    loaded = load_png(sys.argv[1])
+    if not loaded:
+        print("0 0")
+        return
+    w, h, ch, px = loaded
 
-def at(x, y):
-    o = (y * w + x) * ch
-    if ch == 1:
-        v = px[o]
-        return v, v, v
-    return px[o], px[o + 1], px[o + 2]
+    def at(x, y):
+        o = (y * w + x) * ch
+        if ch == 1:
+            v = px[o]
+            return v, v, v
+        return px[o], px[o + 1], px[o + 2]
 
-red = 0
-dark = 0
-for y in range(0, h, 2):
-    for x in range(0, w, 2):
-        r, g, b = at(x, y)
-        if r > 150 and g < 100 and b < 100:
-            red += 1
-        elif 155 <= y <= 655 and 110 <= x <= 820 and r < 100 and g < 100 and b < 100:
-            dark += 1
+    red = 0
+    dark = 0
+    for y in range(0, h, 2):
+        for x in range(0, w, 2):
+            r, g, b = at(x, y)
+            if r > 150 and g < 100 and b < 100:
+                red += 1
+            elif 155 <= y <= 655 and 110 <= x <= 820 and r < 100 and g < 100 and b < 100:
+                dark += 1
+    print("%d %d" % (red, dark))
 
-# The red block is 400x250 = 100k px; sampled every 2nd row/col that is
-# ~25k. The only other red on screen is a ~700 px UI element, so 3000 is a
-# wide margin either way.
-if red < 3000:
-    print("browser-load: red marker block not found in screenshot (red px sampled: %d)" % red)
-    sys.exit(1)
-# A rendered marker page has several lines of text (~1500+ sampled dark px);
-# the "Load failed" error page has one short line (~100). 500 separates them
-# decisively.
-if dark < 500:
-    print("browser-load: no text pixels in page area (dark px sampled: %d)" % dark)
-    sys.exit(1)
-print("browser-load: OK, page rendered (red px sampled: %d, text px sampled: %d)" % (red, dark))
+try:
+    main()
+except Exception:
+    print("0 0")
 EOF
+
+# Run the session in the background with a long deadline and poll for the
+# rendered page instead of trusting a fixed delay: a cold CI runner can take
+# well over 15s to start Browser (LibWeb init, first paint), while a fast dev
+# box renders in ~5s. SIGUSR1 makes WindowServer dump its front buffer to the
+# screenshot path; as soon as the red marker block appears, end the session.
+"$launcher" \
+    --res "$res" \
+    --screenshot "$shot" \
+    --delay 90000 \
+    --log-dir "$logdir" \
+    --home "$base/home" \
+    --service /tmp/session/0/portal/config="$config" \
+    --service /tmp/session/0/portal/clipboard="$clipboard" \
+    --service /tmp/session/0/portal/launch="$launchsrv" \
+    --service /tmp/session/0/portal/sql="$sql" \
+    --broker-service /tmp/session/0/portal/webcontent="$webcontent" \
+    --broker-service /tmp/session/0/portal/request="$request" \
+    --broker-service /tmp/session/0/portal/image="$image" \
+    "$ws" "$browser" "http://127.0.0.1:$port/index.html" &
+launcher_pid=$!
+
+dump_logs() {
+    echo "browser-load: session logs:"
+    for f in "$logdir"/serenade-app.log "$logdir"/serenade-broker-*.log; do
+        [ -f "$f" ] || continue
+        echo "--- $f ---"
+        cat "$f"
+    done
+    echo "--- $base/httpd.log ---"
+    cat "$base/httpd.log" 2>/dev/null
+}
+
+# Wait for the launcher to record WindowServer's pid (written once WS is up).
+ws_pid=""
+i=0
+while [ -z "$ws_pid" ] && kill -0 "$launcher_pid" 2>/dev/null; do
+    i=$((i + 1))
+    [ "$i" -ge 100 ] && break
+    if [ -s "$logdir/serenade-windowserver.pid" ]; then
+        ws_pid=$(cat "$logdir/serenade-windowserver.pid")
+    fi
+    sleep 0.2
+done
+if [ -z "$ws_pid" ]; then
+    echo "browser-load: WindowServer did not start (launcher may have died)"
+    dump_logs
+    kill -TERM "$launcher_pid" 2>/dev/null || true
+    exit 1
+fi
+
+red=0; dark=0
+deadline=$(( $(date +%s) + 85 ))
+while [ "$(date +%s)" -lt "$deadline" ] && kill -0 "$launcher_pid" 2>/dev/null; do
+    kill -USR1 "$ws_pid" 2>/dev/null || true
+    sleep 2
+    counts=$(python3 "$base/probe.py" "$shot" 2>/dev/null) || counts="0 0"
+    red=${counts%% *}; dark=${counts##* }
+    [ "$red" -ge 3000 ] && break
+done
+
+kill -TERM "$launcher_pid" 2>/dev/null || true
+wait "$launcher_pid" 2>/dev/null || true
+
+kill "$http_pid" 2>/dev/null || true
+wait "$http_pid" 2>/dev/null || true
+http_pid=0
+
+# Assert 1: the page was actually fetched over HTTP (and not served from
+# anywhere else or silently failed).
+if ! grep -q "GET /index.html" "$base/httpd.log" || ! grep "GET /index.html" "$base/httpd.log" | grep -q " 200 "; then
+    echo "browser-load: http server log does not show a 200 for the page:"
+    cat "$base/httpd.log"
+    exit 1
+fi
+
+# Assert 2: the screenshot shows the rendered page (red marker block + text).
+if [ "$red" -lt 3000 ]; then
+    echo "browser-load: red marker block not found in screenshot (red px sampled: $red)"
+    dump_logs
+    exit 1
+fi
+if [ "$dark" -lt 500 ]; then
+    echo "browser-load: no text pixels in page area (dark px sampled: $dark)"
+    dump_logs
+    exit 1
+fi
+echo "browser-load: OK, page rendered (red px sampled: $red, text px sampled: $dark)"

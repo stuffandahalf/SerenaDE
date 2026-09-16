@@ -924,6 +924,20 @@ int main(int argc, char** argv)
         return 1;
     }
 
+    // Record the WindowServer's pid so external drivers can poke it while the
+    // session runs (e.g. SIGUSR1 for mid-session screenshot probes).
+    if (options.log_dir) {
+        char pid_path[4096];
+        snprintf(pid_path, sizeof(pid_path), "%s/serenade-windowserver.pid", options.log_dir);
+        int pid_file = open(pid_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        if (pid_file >= 0) {
+            char buf[16];
+            int n = snprintf(buf, sizeof(buf), "%d\n", (int)options.window_server_pid);
+            (void)!write(pid_file, buf, (size_t)n);
+            close(pid_file);
+        }
+    }
+
     // Services that share a binary must run as a single process: Serenity's
     // SystemServer hands all of a server's sockets to one process via
     // SOCKET_TAKEOVER (e.g. AudioServer owns both the audio and audiomanager
