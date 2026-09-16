@@ -28,21 +28,37 @@ Living tracker. Update in the same commit as the work it describes, and keep
 Record discoveries here as they happen (surprising `#ifdef` gaps, API quirks,
  decisions with trade-offs). Newest first.
 
- - 2026-09-16 — **CI fix: wait for the Browser's render instead of a fixed delay;
-    name the skip code explicitly.** The first CI run of `m6-browser-load` failed
-    with "red px sampled: 0" even though its HTTP assertion (GET + 200) passed —
-    the whole fetch path worked, but the screenshot was taken before first paint.
-    A cold two-core runner starts Browser well past the old fixed 15s delay
-    (locally it renders in under 5s, which masked it). The test now runs the
-    launcher in the background with a long deadline and polls: the launcher
-    records WindowServer's pid in `<log-dir>/serenade-windowserver.pid` once WS
-    is ready, the script sends SIGUSR1 (the existing screenshot trigger) every
-    2s and decodes the dump until the red marker block appears, then ends the
-    session with SIGTERM (the launcher's signal handler kills all children). On
-    timeout it dumps the app/broker/http logs to the test output, so a future
-    failure is self-diagnosing. `m6-piano-audio` failed on the same run for a
-    different reason: recent CTest no longer treats exit 77 as "Not Run" unless
-    the test names it — both M6 tests now set `SKIP_RETURN_CODE 77`.
+ - 2026-09-16 — **CI fix: make m6-browser-load hermetic (XDG vars, stale
+    screenshots) and poll for the render; name the skip code explicitly.** Two CI
+    runs of `m6-browser-load` failed with "red px sampled: 0". The first looked
+    like a timing problem (screenshot before first paint on a cold two-core
+    runner), so the test now runs the launcher in the background with a long
+    deadline and polls: the launcher records WindowServer's pid in
+    `<log-dir>/serenade-windowserver.pid` once WS is ready, the script sends
+    SIGUSR1 (the existing screenshot trigger) every 2s and decodes the dump until
+    the red marker block appears, then ends the session with SIGTERM (the
+    launcher's signal handler kills all children). On timeout it dumps the
+    app/broker/http logs to the test output — which is exactly how the *real*
+    root cause of the second run was found: `serenade-app.log` said
+    "Runtime error: open: No such file or directory". Browser had aborted at
+    startup, because CI images set `XDG_CONFIG_HOME`, and `StandardPaths::
+    config_directory()` prefers it over `$HOME/.config` — so Browser looked for
+    its mandatory `BrowserContentFilters.txt` outside the seeded home. The test
+    now pins `XDG_CONFIG_HOME`/`XDG_DATA_HOME` to the seeded home, verifies the
+    seed actually produced both config files (a silent skip used to turn into an
+    inscrutable abort), and deletes any previous screenshot *and* WindowServer pid
+    file before starting. The stale pid file was a second trap: the script latched
+    onto the previous run's pid before this run's launcher overwrote it, so all 85s
+    of SIGUSR1 probes signaled a dead or foreign WindowServer while the live one
+    sat idle in poll() (a stale PNG had separately made a dead Browser look
+    rendered once). The failure path also dumps the relevant environment
+    variables, since XDG differences were the whole problem and CI's env is
+    otherwise invisible. `m6-piano-audio`
+    failed on the first run for a third reason: recent CTest no longer treats
+    exit 77 as "Not Run" unless the test names it — both M6 tests now set
+    `SKIP_RETURN_CODE 77`. (Side note, not fixed: if the config directory cannot
+    be created, ConfigServer hits `release_value_but_fixme_should_propagate_
+    errors()` on the error and crashes — a latent upstream bug.)
 
 - 2026-09-16 — **M6: Browser loads web pages.** The second M6 exit criterion is
     met: `m6-browser-load` brings up WindowServer + the service stack, opens a

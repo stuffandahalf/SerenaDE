@@ -35,19 +35,40 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-mkdir -p "$base/web" "$base/home" "$base/runtime"
+mkdir -p "$base/web" "$base/home/.config" "$base/home/.local/share" "$base/runtime"
 
 # Isolate the browser's singleton state (Ladybird.pid/.socket live in
 # $XDG_RUNTIME_DIR) in a private directory so runs never collide with each
-# other or with a real user session.
+# other or with a real user session. Pin XDG_CONFIG_HOME/XDG_DATA_HOME to the
+# seeded home as well: StandardPaths prefers them over $HOME, and an inherited
+# value (CI images set them) would make Browser read its mandatory config
+# files from the wrong place and abort at startup.
 export XDG_RUNTIME_DIR="$base/runtime"
+export XDG_CONFIG_HOME="$base/home/.config"
+export XDG_DATA_HOME="$base/home/.local/share"
 
 # Browser unconditionally reads ~/.config/BrowserContentFilters.txt and
-# BrowserAutoplayAllowlist.txt at startup; seed the home from Base/home/anon.
+# BrowserAutoplayAllowlist.txt at startup; seed the home from Base/home/anon
+# and fail loudly if that source is missing (a silent skip here used to turn
+# into an inscrutable "Runtime error: open" abort in the app log).
 anon=$(dirname "$res")/home/anon
-if [ -d "$anon" ]; then
-    cp -rT "$anon" "$base/home"
+if [ ! -d "$anon" ]; then
+    echo "browser-load: seed home not found: $anon"
+    exit 1
 fi
+cp -rT "$anon" "$base/home"
+for f in BrowserContentFilters.txt BrowserAutoplayAllowlist.txt; do
+    if [ ! -f "$base/home/.config/$f" ]; then
+        echo "browser-load: missing seeded config file: $base/home/.config/$f"
+        exit 1
+    fi
+done
+
+# Drop state from previous runs: the probe below must only ever see pixels
+# written by WindowServer during this session, and the pid file must be the
+# one *this* launcher writes (a stale one makes the polling loop signal a
+# dead or foreign WindowServer for the whole deadline).
+rm -f "$shot" "$logdir/serenade-windowserver.pid"
 
 cat > "$base/web/index.html" <<'EOF'
 <!DOCTYPE html>
@@ -205,6 +226,10 @@ dump_logs() {
     done
     echo "--- $base/httpd.log ---"
     cat "$base/httpd.log" 2>/dev/null
+    # Environment differences (XDG_*, HOME, ...) have caused CI-only failures;
+    # dump the relevant variables so the next one is diagnosable from the log.
+    echo "--- environment ---"
+    env | grep -E "^(HOME|USER|XDG_|SERENITY_RES|WINDOW_SERVER)" | sort || true
 }
 
 # Wait for the launcher to record WindowServer's pid (written once WS is up).
