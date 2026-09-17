@@ -385,8 +385,10 @@ browser services; runs under the launcher as a broker service; `app-imageviewer-
 opens a real image through the portal headless, since `request_file_read_only_approved` auto-approves);
 (2) SoundPlayer — **done** (patches 0051–0052; `app-soundplayer-play` proves real playback via a .monitor
 capture; 0052 also fixes a glibc EINVAL crash in the async_enqueue priority path that hit any app using
-it); (3) Maps (deps built; tiles via RequestServer); (4) Mail (deps built incl. LibIMAP; needs the GML
-binary-dir include path like Browser, patch 0048). TextEditor is deferred: it drags in LibMarkdown/
+it); (3) Maps — **done** (patch 0053; `app-maps-render` — RequestServer must run as a broker service, and
+host TLS reads `$HOME/.config/certs.pem`, which the test seeds best-effort); (4) Mail — **done** (patch
+0054; `app-mail-render` — WebContent is required as a broker for its embedded web view). All four plan
+items have landed; full serial ctest 266/266. TextEditor remains deferred: it drags in LibMarkdown/
 LibGemini/LibSyntax, which Lagom does not build yet.
 
 ## Patch workflow

@@ -1,0 +1,60 @@
+From a952f2df8c4461ee8b737dd4ab88d1891bf5a0a5 Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory@serenade.local>
+Date: Wed, 16 Sep 2026 21:24:58 -0400
+Subject: [PATCH] Lagom: Build Maps on host
+
+All of its link dependencies already build on host (LibMaps came in with
+FileManager, LibProtocol with the browser stack). Three wirings: add it
+to the host applications list; give it the binary-dir include path for
+its GML headers (same pattern as PixelPaint, FileManager, Piano and
+Browser); and include <limits.h> in main.cpp, which uses INT_MIN but
+relied on a transitive include that the host build does not provide.
+
+Map tiles load through RequestServer at runtime; without a network the
+map area shows its 'Failed to fetch map tiles' fallback, so the app is
+usable either way.
+---
+ Meta/Lagom/CMakeLists.txt                 | 1 +
+ Userland/Applications/Maps/CMakeLists.txt | 3 +++
+ Userland/Applications/Maps/main.cpp       | 1 +
+ 3 files changed, 5 insertions(+)
+
+diff --git a/Meta/Lagom/CMakeLists.txt b/Meta/Lagom/CMakeLists.txt
+index f0914eb803..a39409a2f9 100644
+--- a/Meta/Lagom/CMakeLists.txt
++++ b/Meta/Lagom/CMakeLists.txt
+@@ -588,6 +588,7 @@ if (BUILD_LAGOM)
+         add_serenity_subdirectory(Userland/Applications/Calculator)
+         add_serenity_subdirectory(Userland/Applications/FileManager)
+         add_serenity_subdirectory(Userland/Applications/ImageViewer)
++        add_serenity_subdirectory(Userland/Applications/Maps)
+         add_serenity_subdirectory(Userland/Applications/PixelPaint)
+         add_serenity_subdirectory(Userland/Applications/Settings)
+         add_serenity_subdirectory(Userland/Applications/Piano)
+diff --git a/Userland/Applications/Maps/CMakeLists.txt b/Userland/Applications/Maps/CMakeLists.txt
+index 59d7b11901..0c49d4b7f1 100644
+--- a/Userland/Applications/Maps/CMakeLists.txt
++++ b/Userland/Applications/Maps/CMakeLists.txt
+@@ -20,4 +20,7 @@ set(SOURCES
+ )
+ 
+ serenity_app(Maps ICON app-maps)
++# The stringify_gml headers land in the binary dir; <Applications/Maps/...>
++# includes need it (same pattern as PixelPaint, FileManager, Piano and Browser).
++target_include_directories(Maps PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/../..)
+ target_link_libraries(Maps PRIVATE LibConfig LibCore LibDesktop LibGfx LibGUI LibMain LibMaps LibProtocol LibURL)
+diff --git a/Userland/Applications/Maps/main.cpp b/Userland/Applications/Maps/main.cpp
+index adf242a272..6e03d13e55 100644
+--- a/Userland/Applications/Maps/main.cpp
++++ b/Userland/Applications/Maps/main.cpp
+@@ -19,6 +19,7 @@
+ #include <LibGUI/Splitter.h>
+ #include <LibGUI/ToolbarContainer.h>
+ #include <LibGUI/Window.h>
++#include <limits.h>
+ 
+ static int constexpr MAP_ZOOM_DEFAULT = 3;
+ 
+-- 
+2.55.0
+

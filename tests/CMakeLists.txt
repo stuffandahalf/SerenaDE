@@ -337,3 +337,49 @@ add_test(NAME app-soundplayer-play
         $<TARGET_FILE:ImageDecoder>)
 set_tests_properties(app-soundplayer-play PROPERTIES TIMEOUT 120 SKIP_RETURN_CODE 77)
 
+# Maps renders its window (app-completion: third app of the plan). All link
+# deps already build (LibMaps with FileManager, LibProtocol with the browser
+# stack); patch 0053 adds it to the Lagom app list plus the GML binary-dir
+# include path. RequestServer must run as a broker service -- it takes over an
+# *accepted* client socket (one process per connection), so a regular
+# --service entry would make it read from its own listener and crash in
+# recvmsg with EINVAL. Tiles load over HTTPS through RequestServer when the
+# host has network + CA certificates (the script seeds $HOME/.config/certs.pem
+# best-effort); otherwise the map area shows its fallback text, so the check
+# is functional (--expect-window), not a golden.
+add_test(NAME app-maps-render
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/maps-render.sh
+        $<TARGET_FILE:serenade-launcher>
+        ${SERENITY_SOURCE_DIR}/Base/res
+        ${CMAKE_CURRENT_BINARY_DIR}/app-maps.png
+        ${CMAKE_CURRENT_BINARY_DIR}
+        $<TARGET_FILE:WindowServer>
+        $<TARGET_FILE:Maps>
+        $<TARGET_FILE:ConfigServer>
+        $<TARGET_FILE:Clipboard>
+        $<TARGET_FILE:LaunchServer>
+        $<TARGET_FILE:RequestServer>)
+set_tests_properties(app-maps-render PROPERTIES TIMEOUT 120 SKIP_RETURN_CODE 77)
+
+# Mail renders its window (app-completion: fourth app of the plan). All link
+# deps already build (LibIMAP is a standard Lagom library, LibWebView/LibWeb
+# with the browser stack); patch 0054 adds it to the Lagom app list plus the
+# GML binary-dir include path. WebContent must run as a broker service: Mail's
+# out-of-process web view connects at construction and aborts if the service
+# is missing. With no account configured Mail shows its empty inbox UI -- no
+# IMAP server or network needed. The check is functional (--expect-window),
+# not a golden, since the web view area is rendered by the WebContent process.
+add_test(NAME app-mail-render
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/mail-render.sh
+        $<TARGET_FILE:serenade-launcher>
+        ${SERENITY_SOURCE_DIR}/Base/res
+        ${CMAKE_CURRENT_BINARY_DIR}/app-mail.png
+        ${CMAKE_CURRENT_BINARY_DIR}
+        $<TARGET_FILE:WindowServer>
+        $<TARGET_FILE:Mail>
+        $<TARGET_FILE:ConfigServer>
+        $<TARGET_FILE:Clipboard>
+        $<TARGET_FILE:LaunchServer>
+        $<TARGET_FILE:WebContent>)
+set_tests_properties(app-mail-render PROPERTIES TIMEOUT 120 SKIP_RETURN_CODE 77)
+

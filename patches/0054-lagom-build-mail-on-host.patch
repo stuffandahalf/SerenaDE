@@ -1,0 +1,45 @@
+From d21b1d70e7fabda3e3b69a1f4bf42d3adc8f1845 Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory@serenade.local>
+Date: Wed, 16 Sep 2026 23:08:18 -0400
+Subject: [PATCH] Lagom: Build Mail on host
+
+All of its link dependencies already build on host (LibIMAP is a standard
+Lagom library, LibWebView/LibWeb with the browser stack). Two wirings: add
+it to the host applications list, and give it the binary-dir include path
+for its GML headers (same pattern as PixelPaint, FileManager, Piano and
+Browser). At startup it needs WebContent running (its out-of-process web
+view connects at construction and aborts if the service is missing); with
+no account configured it shows its empty inbox UI, so it is usable without
+any IMAP server.
+---
+ Meta/Lagom/CMakeLists.txt                 | 1 +
+ Userland/Applications/Mail/CMakeLists.txt | 3 +++
+ 2 files changed, 4 insertions(+)
+
+diff --git a/Meta/Lagom/CMakeLists.txt b/Meta/Lagom/CMakeLists.txt
+index a39409a2f9..687dc972bb 100644
+--- a/Meta/Lagom/CMakeLists.txt
++++ b/Meta/Lagom/CMakeLists.txt
+@@ -588,6 +588,7 @@ if (BUILD_LAGOM)
+         add_serenity_subdirectory(Userland/Applications/Calculator)
+         add_serenity_subdirectory(Userland/Applications/FileManager)
+         add_serenity_subdirectory(Userland/Applications/ImageViewer)
++        add_serenity_subdirectory(Userland/Applications/Mail)
+         add_serenity_subdirectory(Userland/Applications/Maps)
+         add_serenity_subdirectory(Userland/Applications/PixelPaint)
+         add_serenity_subdirectory(Userland/Applications/Settings)
+diff --git a/Userland/Applications/Mail/CMakeLists.txt b/Userland/Applications/Mail/CMakeLists.txt
+index dfab2b0a95..d1c0e4d081 100644
+--- a/Userland/Applications/Mail/CMakeLists.txt
++++ b/Userland/Applications/Mail/CMakeLists.txt
+@@ -20,4 +20,7 @@ set(GENERATED_SOURCES
+ )
+ 
+ serenity_app(Mail ICON app-mail)
++# The stringify_gml headers land in the binary dir; <Applications/Mail/...>
++# includes need it (same pattern as PixelPaint, FileManager, Piano and Browser).
++target_include_directories(Mail PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/../..)
+ target_link_libraries(Mail PRIVATE LibConfig LibCore LibDesktop LibGfx LibGUI LibIMAP LibWebView LibWeb LibMain LibURL)
+-- 
+2.55.0
+

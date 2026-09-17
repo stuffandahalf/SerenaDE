@@ -24,11 +24,63 @@ Living tracker. Update in the same commit as the work it describes, and keep
 | Browser services on host           | M6        | done        | ImageDecoder/RequestServer/WebContent (+SQLServer) build on host (patch 0043); service-side `compile_ipc` skipped in Lagom since the client libs already generate the endpoint headers (0044); jail-mode entry points no-op'd for Browser's unconditional pre-exec call (0045); LibWebView out-of-process view + Browser/BrowserSettings apps in Lagom (0046–0048). Launcher gained a `--broker-service` mode: those three services take over an *accepted* client socket (fd 3, one process per connection), so the launcher pre-binds and accept/spawns per connection. Browser needs a seeded `$HOME` (`Base/home/anon`) and a private `XDG_RUNTIME_DIR` (Ladybird singleton state). `m6-browser-load` proves "Browser loads web pages" end-to-end via GET log + screenshot pixel checks; full serial ctest 262/262 |
 | FileSystemAccessServer on host   | post-M6     | done        | Patch 0050: moved into the always-built Services list; service-side `compile_ipc` guarded to SerenityOS because the Lagom root has generated both endpoint headers since patch 0024. Runs under the launcher as a broker service (accepted-socket takeover, one process per connection). `app-imageviewer-open` proves ImageViewer opens a generated PNG through the portal and renders it — `request_file_read_only_approved()` auto-approves, so it is headless; full serial ctest 263/263 |
 | SoundPlayer on host              | post-M6     | done        | Patch 0051 adds it to the Lagom app list (all deps already built, no GML). Patch 0052 makes the async_enqueue enqueuer's priority elevation best-effort: glibc rejects a non-zero SCHED_OTHER priority with EINVAL, which crashed any app using async_enqueue (Piano uses blocking_realtime_enqueue and was unaffected). `app-soundplayer-play` proves real playback end to end via a .monitor capture; full serial ctest 264/264 |
+| Maps on host                     | post-M6     | done        | Patch 0053: app list + GML binary-dir include path + `<limits.h>` for INT_MIN in main.cpp. RequestServer must run as a broker service (accepted-socket takeover; a regular `--service` crashes it with EINVAL in recvmsg). `app-maps-render` asserts the window functionally — tiles load over HTTPS when the host has network + CA bundle (the script seeds `$HOME/.config/certs.pem` best-effort), otherwise the map area shows its fallback |
+| Mail on host                     | post-M6     | done        | Patch 0054: app list + GML binary-dir include path (all deps already built; no portability fixes). WebContent must run as a broker service — Mail's out-of-process web view connects at construction and aborts without it. `app-mail-render` asserts the empty inbox UI functionally (`--expect-window 0.25`, measured 0.364); full serial ctest 266/266 |
 
 ## Porting log
 
 Record discoveries here as they happen (surprising `#ifdef` gaps, API quirks,
  decisions with trade-offs). Newest first.
+
+ - 2026-09-16 — **App completion: Mail on host (patch 0054); the app-completion plan is complete.**
+    Step four of the app-completion plan -- the last one. Patch 0054 adds Mail to the Lagom host
+    applications list and gives it the binary-dir include path for its GML headers; all link dependencies
+    already build (LibIMAP is a standard Lagom library, LibWebView/LibWeb with the browser stack). No
+    portability fixes were needed -- it built on the first try.
+
+    Mail's window embeds an out-of-process web view (for HTML mail) that connects to WebContent at
+    construction and aborts if the service is missing (`release_value_but_fixme_should_propagate_errors()`
+    on `WebContentClient::try_create`), so the session runs WebContent as a broker service. The
+    `/tmp/portal/lookup` unveil in main.cpp is legacy: DNS goes through getaddrinfo() directly (the M6
+    finding) and no built app uses LookupServer at runtime. With no account configured Mail shows its empty
+    inbox UI with no IMAP server or network -- fully headless. New test `app-mail-render`
+    (`tests/scripts/mail-render.sh`) asserts the window functionally (`--expect-window 0.25`; measured
+    0.364) rather than as a golden, since the web view area is rendered by the WebContent process.
+
+    With this, every item of the app-completion plan has landed: FileSystemAccessServer (0050), SoundPlayer
+    (0051–0052), Maps (0053) and Mail (0054). TextEditor remains deferred (it drags in
+    LibMarkdown/LibGemini/LibSyntax, which Lagom does not build yet).
+
+    Verification: all 54 patches forward-apply on the bare pin in order; the patched tree is byte-identical
+    to the dev tree; full serial ctest **266/266**.
+
+ - 2026-09-16 — **App completion: Maps on host (patch 0053); window rendering proven.**
+    Step three of the app-completion plan. Patch 0053 adds Maps to the Lagom host applications list, gives
+    it the binary-dir include path for its GML headers (same pattern as PixelPaint/FileManager/Piano/
+    Browser), and includes `<limits.h>` in main.cpp -- it uses INT_MIN but relied on a transitive include
+    the host build does not provide. All link dependencies already build (LibMaps came in with FileManager,
+    LibProtocol with the browser stack).
+
+    Two session findings:
+    - **RequestServer is a broker service.** It takes over an *accepted* client socket on fd 3 (one process
+      per connection), exactly like WebContent. Passing it as a regular `--service` makes it read from its
+      own listener, and recvmsg on a listening UDS stream socket returns EINVAL -- RequestServer died in the
+      ConnectionBase drain loop with VERIFICATION FAILED, silently leaving Maps without a tile provider (the
+      app itself rendered fine, which made the failure easy to miss).
+    - **Host TLS needs `$HOME/.config/certs.pem`.** LibTLS's `DefaultRootCACertificates` reads
+      `/etc/cacert.pem` (Serenity) and, on other hosts, additionally `$HOME/.config/certs.pem`. With no
+      bundle every HTTPS request fails chain verification ("No trusted root certificate found...") and the
+      map area stays empty. Seeding the session home with the host's CA bundle (best-effort over a few
+      common paths) makes RequestServer verify TLS and real OSM tiles render -- no Serenity change needed.
+
+    New test `app-maps-render` (`tests/scripts/maps-render.sh`): brings up WindowServer + Maps with
+    Config/Clipboard/Launch as regular services and RequestServer as a broker; the check is functional
+    (`--expect-window 0.30`) rather than a golden, because tile presence depends on the host's network --
+    with or without tiles the window renders at ~0.44 non-background fraction (the map area is empty/black
+    until tiles arrive), while a crashed app leaves only the desktop (~0).
+
+    Verification: all 53 patches forward-apply on the bare pin in order; the patched tree is byte-identical
+    to the dev tree; full serial ctest **265/265**.
 
  - 2026-09-16 — **App completion: SoundPlayer on host (patches 0051–0052); real audio playback proven.**
     Step two of the app-completion plan. Patch 0051 adds SoundPlayer to the Lagom host applications list — all
