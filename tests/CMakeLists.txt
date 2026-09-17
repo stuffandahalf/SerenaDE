@@ -294,4 +294,24 @@ add_test(NAME m6-browser-load
         $<TARGET_FILE:ImageDecoder>)
 set_tests_properties(m6-browser-load PROPERTIES TIMEOUT 120 SKIP_RETURN_CODE 77)
 
+# ImageViewer opens a real file (app-completion: the first services from the
+# SerenityOS-only set running on host -- FileSystemAccessServer for the open,
+# ImageDecoder for the decode). The CLI file argument goes through
+# request_file_read_only_approved(), which auto-approves, so this is headless:
+# the assertion is that the generated red test image is visible in the
+# screenshot. Skips when python3 is unavailable.
+add_test(NAME app-imageviewer-open
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/imageviewer-open.sh
+        $<TARGET_FILE:serenade-launcher>
+        ${SERENITY_SOURCE_DIR}/Base/res
+        ${CMAKE_CURRENT_BINARY_DIR}/app-imageviewer.png
+        ${CMAKE_CURRENT_BINARY_DIR}
+        $<TARGET_FILE:WindowServer>
+        $<TARGET_FILE:ImageViewer>
+        $<TARGET_FILE:ConfigServer>
+        $<TARGET_FILE:Clipboard>
+        $<TARGET_FILE:LaunchServer>
+        $<TARGET_FILE:FileSystemAccessServer>
+        $<TARGET_FILE:ImageDecoder>)
+set_tests_properties(app-imageviewer-open PROPERTIES TIMEOUT 120 SKIP_RETURN_CODE 77)
 

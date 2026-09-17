@@ -65,10 +65,12 @@ for f in BrowserContentFilters.txt BrowserAutoplayAllowlist.txt; do
 done
 
 # Drop state from previous runs: the probe below must only ever see pixels
-# written by WindowServer during this session, and the pid file must be the
-# one *this* launcher writes (a stale one makes the polling loop signal a
-# dead or foreign WindowServer for the whole deadline).
-rm -f "$shot" "$logdir/serenade-windowserver.pid"
+# written by WindowServer during this session, the pid file must be the one
+# *this* launcher writes (a stale one makes the polling loop signal a dead or
+# foreign WindowServer for the whole deadline), and stale logs must not
+# masquerade as this run's diagnostics (the launcher only truncates the log
+# files it opens itself).
+rm -f "$shot" "$logdir/serenade-windowserver.pid" "$logdir"/serenade-*.log
 
 cat > "$base/web/index.html" <<'EOF'
 <!DOCTYPE html>

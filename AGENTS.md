@@ -69,7 +69,7 @@ SerenaDE/
 │   └── golden/                # Reference PNGs
 ├── docs/
 │   └── PORTING.md             # Component status tracker + porting log
-└── .github/workflows/ci.yml   # Linux build+test; FreeBSD job (self-hosted) later
+└── .github/workflows/ci.yml   # Linux build+test; the FreeBSD VM job returns as M7's first task
 ```
 
 Serenity-side reference points (in the pinned Serenity tree):
@@ -200,14 +200,15 @@ keyboard works in a text field, windows can be dragged/resized with real input.
 **Exit:** launch Terminal from the desktop; copy/paste between two apps; browse
 the real filesystem in FileManager. All M2 golden tests still pass.
 
-### M5 — BSD support + polish
+### M5 — BSD support (FreeBSD) + polish
 
-- Verify/configure on FreeBSD (self-hosted CI runner); fix any non-POSIX drift.
+- Verify/configure on FreeBSD; fix any non-POSIX drift.
 - DPI/scale factors, cursor themes, font coverage, window-manager edge cases
   (focus, multi-monitor later).
 
-**Exit:** the M4 app subset works on FreeBSD; CI green on Linux **and**
-FreeBSD.
+**Exit:** the M4 app subset builds, links and boots WindowServer on FreeBSD;
+polish items done; Linux CI green. (Full-suite green on FreeBSD plus NetBSD
+and OpenBSD support moved to M7.)
 
 ### M6 — Heavy apps
 
@@ -216,6 +217,25 @@ FreeBSD.
   best-effort/stub) → games, Piano.
 
 **Exit:** Browser loads web pages; audio plays in at least one game.
+
+### M7 — Full BSD support (FreeBSD, NetBSD, OpenBSD)
+
+M5 closed with FreeBSD at "builds, links, boots; full suite unverified" and
+the other BSDs untouched. One subtask per OS, each following the same shape:
+portability audit of `src/` + patches → build → boot WindowServer → serial
+ctest green (at minimum the M1–M4 slice).
+
+- **FreeBSD:** re-add the `build-freebsd` CI job (vmactions/freebsd-vm on a
+  hosted runner, as before 7ebcda8) and get the full serial ctest green in
+  the VM. Patches 0026–0037 already cleared every known blocker.
+- **NetBSD:** audit + build; expect `posix_spawn` feature gaps (the portable
+  fallbacks from 0026/0027 should cover them), keymap/input quirks, and
+  toolchain choices (pkg LLVM vs native).
+- **OpenBSD:** audit + build; expect pledge(2) policy interactions with our
+  no-op'd pledge calls, stricter W^X, and `sys/sysmacros.h` (covered by 0029).
+
+**Exit:** CI green on Linux + FreeBSD + NetBSD + OpenBSD for the M4 app
+subset; a porting-log entry per OS.
 
 ### Current status
 
@@ -287,7 +307,7 @@ third `ScreenBackend`, no compositor changes). All Xlib stays in SerenaDE's
        All five M4 apps (Terminal, FileManager, Settings, ImageViewer, PixelPaint) now build and render.
        Full serial ctest is **250/250**. See `docs/PORTING.md`.
 
-**M5 — in progress (2026-09-07).** FreeBSD support + polish. A portability audit of the shim
+**M5 — complete (2026-09-16; BSD matrix moved to M7).** FreeBSD support + polish. A portability audit of the shim
 (`src/`) found it already BSD-clean (only X11/XShm, both portable; no evdev/epoll//proc). Patches 0026–0035
 then cleared every compile/link blocker on a real FreeBSD VM: glibc-only `posix_spawn` features gated to
 Serenity/glibc with portable fallbacks (0026 Process, 0027 FileManager), LLD auto-selection skipped (0028),
@@ -306,8 +326,9 @@ patch 0037 keeps ctest as root and skips those cases when `getuid() == 0`. The C
 output to a `ci-diagnostics` branch on failure for diagnosis. The polish items are done:
 `--scale` (26bd2a9, verified 2x physical-pixel ratio) and `--cursor-theme` (9ac0cec, verified render +
 selection); font coverage and WM focus/raise were verified working against the existing golden tests.
-Remaining M5: confirm the suite is green in the FreeBSD VM — **paused on user request** (the FreeBSD CI
-job was removed in 7ebcda8 while Linux is the focus).
+The remaining M5 item — full-suite green in the FreeBSD VM — plus NetBSD and
+OpenBSD support are now M7's subtasks (the FreeBSD CI job, removed in 7ebcda8
+while Linux was the focus, comes back as M7's first task).
 
 **M6 — complete (2026-09-16).** Heavy apps. Both exit criteria met: audio plays in
 Piano, and Browser loads web pages (`m6-browser-load`). First, an architecture finding that shrank the scope:
@@ -352,6 +373,20 @@ handles content-based colortype 0/2/6). Patch 0049 fixed a latent bug the new bu
 loaded four fonts in static initializers, crashing any LibGUI-linking process without a resource root at
 library-load time (first hit by `TestWebViewURL`, which Lagom registers once LibWeb is enabled) — the fonts
 are now loaded on first use. Full serial ctest **262/262**; all 49 patches re-verified from a pristine pin.
+
+**App completion (active, 2026-09-16).** With M6's exit criteria met, the remaining work is wiring
+the rest of Serenity's apps onto the host session. Audit of the pin: 11 apps build via Lagom (About,
+AnalogClock, Browser, BrowserSettings, Calculator, FileManager, ImageViewer, PixelPaint, Settings,
+Piano, Terminal). Of the services still gated to SerenityOS, the one built apps actually need is
+**FileSystemAccessServer** (file open/approval for ImageViewer/PixelPaint/TextEditor); NotificationServer
+is deferred (no built app links LibNotificationClient yet). Plan, in order: (1) FileSystemAccessServer
+on host — **done** (patch 0050: always-built + service-side `compile_ipc` guarded, same pattern as the
+browser services; runs under the launcher as a broker service; `app-imageviewer-open` proves ImageViewer
+opens a real image through the portal headless, since `request_file_read_only_approved` auto-approves);
+(2) SoundPlayer (all deps already built — M6's audio work pays off directly); (3) Maps (deps built;
+tiles via RequestServer); (4) Mail (deps built incl. LibIMAP; needs the GML binary-dir include path like
+Browser, patch 0048). TextEditor is deferred: it drags in LibMarkdown/LibGemini/LibSyntax, which Lagom
+does not build yet.
 
 ## Patch workflow
 
