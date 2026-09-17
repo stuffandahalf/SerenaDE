@@ -26,11 +26,39 @@ Living tracker. Update in the same commit as the work it describes, and keep
 | SoundPlayer on host              | post-M6     | done        | Patch 0051 adds it to the Lagom app list (all deps already built, no GML). Patch 0052 makes the async_enqueue enqueuer's priority elevation best-effort: glibc rejects a non-zero SCHED_OTHER priority with EINVAL, which crashed any app using async_enqueue (Piano uses blocking_realtime_enqueue and was unaffected). `app-soundplayer-play` proves real playback end to end via a .monitor capture; full serial ctest 264/264 |
 | Maps on host                     | post-M6     | done        | Patch 0053: app list + GML binary-dir include path + `<limits.h>` for INT_MIN in main.cpp. RequestServer must run as a broker service (accepted-socket takeover; a regular `--service` crashes it with EINVAL in recvmsg). `app-maps-render` asserts the window functionally — tiles load over HTTPS when the host has network + CA bundle (the script seeds `$HOME/.config/certs.pem` best-effort), otherwise the map area shows its fallback |
 | Mail on host                     | post-M6     | done        | Patch 0054: app list + GML binary-dir include path (all deps already built; no portability fixes). WebContent must run as a broker service — Mail's out-of-process web view connects at construction and aborts without it. `app-mail-render` asserts the empty inbox UI functionally (`--expect-window 0.25`, measured 0.364); full serial ctest 266/266 |
+| TextEditor on host               | post-M6     | done        | Patches 0055–0056: LibCMake joins the standard Lagom libraries (the only lib actually missing — LibMarkdown/LibGemini/LibSyntax were already there) and LibShell's SyntaxHighlighter.cpp is un-gated from SerenityOS (TextEditor references its vtable; the gate's LibCodeComprehension link was legacy — nothing in LibShell references it). `app-texteditor-open` opens a fixed document through the FileSystemAccess portal and golden-compares the render; full serial ctest 267/267 |
 
 ## Porting log
 
 Record discoveries here as they happen (surprising `#ifdef` gaps, API quirks,
  decisions with trade-offs). Newest first.
+
+ - 2026-09-16 — **App completion: TextEditor on host (patches 0055–0056); opens real files.**
+    The last app of the completion plan -- including the one that was deferred. Two build wirings surfaced:
+    - Patch 0055 adds LibCMake to the standard Lagom libraries and TextEditor to the host applications list.
+      Notably, this corrects the plan's assumption: LibMarkdown, LibGemini and LibSyntax were believed missing
+      from Lagom but were already in `lagom_standard_libraries` -- the only library actually absent was
+      LibCMake (a small pure syntax-highlighting lib for TextEditor's CMake highlighting that links only
+      LibSyntax).
+    - Patch 0056 un-gates LibShell's SyntaxHighlighter.cpp from SerenityOS. TextEditor references
+      `Shell::SyntaxHighlighter`, whose vtable was missing from host builds (link error: "vtable for
+      Shell::SyntaxHighlighter ... missing its key function"). The gate also dragged in LibCodeComprehension,
+      but nothing in LibShell references it -- the link line itself was the only mention -- so the source file
+      simply moves out of the gate. It uses Gfx::Font/Palette, so LibGfx is linked (unconditionally; on
+      Serenity LibShell just gains a harmless extra dependency).
+
+    TextEditor's GML stringifies to a .cpp compiled into the app (no binary-dir include path needed), and its
+    markdown/HTML preview web view is created lazily -- a plain .txt triggers no preview at all, so the session
+    needs only Config/Clipboard/Launch (regular) + FileSystemAccessServer (broker). The CLI file argument goes
+    through `request_file_read_only_approved()` (auto-approves), so the whole open path is headless-testable.
+
+    New test `app-texteditor-open` (`tests/scripts/texteditor-open.sh`): opens a fixed three-line document and
+    golden-compares the render (fresh per-run $HOME for deterministic window placement; the blinking cursor can
+    flip between runs but stays far below the compare tolerance). A no-file run differs from the file run by
+    ~4000 px in the text region, confirming the document genuinely loaded.
+
+    Verification: all 56 patches forward-apply on the bare pin in order; the patched tree is byte-identical to
+    the dev tree; full serial ctest **267/267**.
 
  - 2026-09-16 — **App completion: Mail on host (patch 0054); the app-completion plan is complete.**
     Step four of the app-completion plan -- the last one. Patch 0054 adds Mail to the Lagom host
@@ -48,8 +76,8 @@ Record discoveries here as they happen (surprising `#ifdef` gaps, API quirks,
     0.364) rather than as a golden, since the web view area is rendered by the WebContent process.
 
     With this, every item of the app-completion plan has landed: FileSystemAccessServer (0050), SoundPlayer
-    (0051–0052), Maps (0053) and Mail (0054). TextEditor remains deferred (it drags in
-    LibMarkdown/LibGemini/LibSyntax, which Lagom does not build yet).
+    (0051–0052), Maps (0053) and Mail (0054). (The previously deferred TextEditor followed as patches
+    0055–0056 -- see the entry above.)
 
     Verification: all 54 patches forward-apply on the bare pin in order; the patched tree is byte-identical
     to the dev tree; full serial ctest **266/266**.

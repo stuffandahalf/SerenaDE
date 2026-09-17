@@ -1,0 +1,37 @@
+From 549eaebb2912c553699f911f6c384b558731c6ba Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory@serenade.local>
+Date: Thu, 17 Sep 2026 12:22:50 -0400
+Subject: [PATCH] LibShell: Build SyntaxHighlighter on host systems
+
+TextEditor (and anything else embedding a shell view) references
+Shell::SyntaxHighlighter, whose vtable was missing from host builds
+because SyntaxHighlighter.cpp was gated to SerenityOS. The gate also
+dragged in LibCodeComprehension, but nothing in the library actually
+references it -- the only mention is that link line itself -- so the
+source file simply moves out of the gate. It uses Gfx::Font/Palette, so
+LibGfx is linked (unconditionally: on Serenity LibShell just gains a
+harmless extra dependency).
+---
+ Userland/Libraries/LibShell/CMakeLists.txt | 5 ++---
+ 1 file changed, 2 insertions(+), 3 deletions(-)
+
+diff --git a/Userland/Libraries/LibShell/CMakeLists.txt b/Userland/Libraries/LibShell/CMakeLists.txt
+index 8cb8818e8f..2a3a40f90a 100644
+--- a/Userland/Libraries/LibShell/CMakeLists.txt
++++ b/Userland/Libraries/LibShell/CMakeLists.txt
+@@ -16,10 +16,9 @@ target_link_libraries(LibShellMinimal PRIVATE LibCoreMinimal LibCoreBasic LibReg
+ target_sources(LibShellMinimal PRIVATE MinimalHighlight.cpp)
+ 
+ serenity_lib(LibShell shell)
+-target_link_libraries(LibShell PRIVATE LibCore LibRegex LibLine LibFileSystem LibSyntax LibURL)
+-target_sources(LibShell PRIVATE URLHighlight.cpp)
++target_link_libraries(LibShell PRIVATE LibCore LibGfx LibRegex LibLine LibFileSystem LibSyntax LibURL)
++target_sources(LibShell PRIVATE URLHighlight.cpp SyntaxHighlighter.cpp)
+ 
+ if (SERENITYOS)
+-    target_sources(LibShell PRIVATE SyntaxHighlighter.cpp)
+     target_link_libraries(LibShell PRIVATE LibCodeComprehension)
+ endif()
+-- 
+2.55.0
+

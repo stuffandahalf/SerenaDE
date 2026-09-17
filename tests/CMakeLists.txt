@@ -383,3 +383,30 @@ add_test(NAME app-mail-render
         $<TARGET_FILE:WebContent>)
 set_tests_properties(app-mail-render PROPERTIES TIMEOUT 120 SKIP_RETURN_CODE 77)
 
+# TextEditor opens a real file (app-completion: the last app of the plan).
+# Patches 0055–0056 make it build: LibCMake joins the standard Lagom libraries
+# (TextEditor's CMake highlighting), and LibShell's SyntaxHighlighter.cpp --
+# whose vtable TextEditor references -- is no longer gated to SerenityOS. The
+# CLI file argument goes through request_file_read_only_approved(), which
+# auto-approves, so this is headless: the assertion is that the fixed test
+# document is visible in the screenshot (a golden), i.e. TextEditor ->
+# FileSystemAccessServer IPC -> open -> render all worked. The markdown/HTML
+# preview web view is created lazily and a .txt triggers none, so no
+# WebContent service is needed. Fresh per-run $HOME keeps the window placement
+# deterministic; the blinking cursor can flip between runs but stays far below
+# the compare tolerance.
+add_test(NAME app-texteditor-open
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/texteditor-open.sh
+        $<TARGET_FILE:serenade-launcher>
+        ${SERENITY_SOURCE_DIR}/Base/res
+        ${CMAKE_CURRENT_BINARY_DIR}/app-texteditor.png
+        ${CMAKE_CURRENT_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/golden/texteditor-open.png
+        $<TARGET_FILE:WindowServer>
+        $<TARGET_FILE:TextEditor>
+        $<TARGET_FILE:ConfigServer>
+        $<TARGET_FILE:Clipboard>
+        $<TARGET_FILE:LaunchServer>
+        $<TARGET_FILE:FileSystemAccessServer>)
+set_tests_properties(app-texteditor-open PROPERTIES TIMEOUT 90)
+

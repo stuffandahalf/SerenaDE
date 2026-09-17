@@ -387,9 +387,10 @@ opens a real image through the portal headless, since `request_file_read_only_ap
 capture; 0052 also fixes a glibc EINVAL crash in the async_enqueue priority path that hit any app using
 it); (3) Maps — **done** (patch 0053; `app-maps-render` — RequestServer must run as a broker service, and
 host TLS reads `$HOME/.config/certs.pem`, which the test seeds best-effort); (4) Mail — **done** (patch
-0054; `app-mail-render` — WebContent is required as a broker for its embedded web view). All four plan
-items have landed; full serial ctest 266/266. TextEditor remains deferred: it drags in LibMarkdown/
-LibGemini/LibSyntax, which Lagom does not build yet.
+0054; `app-mail-render` — WebContent is required as a broker for its embedded web view). All four plan items
+have landed, and the previously deferred TextEditor followed (patches 0055–0056; `app-texteditor-open` opens
+a real file through the portal — LibMarkdown/LibGemini/LibSyntax were already in Lagom after all; only
+LibCMake was missing, plus un-gating LibShell's SyntaxHighlighter). Full serial ctest 267/267.
 
 ## Patch workflow
 

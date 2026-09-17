@@ -1,0 +1,45 @@
+From c0606d6fc1c1dc36c7855a0300124d5acb925b03 Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory@serenade.local>
+Date: Thu, 17 Sep 2026 12:12:04 -0400
+Subject: [PATCH] Lagom: Build TextEditor on host
+
+The last app of the completion plan. Two wirings, both in the Lagom
+library/app lists: add LibCMake to the standard libraries (a small pure
+syntax-highlighting library that only links LibSyntax -- needed for
+TextEditor's CMake highlighting), and add TextEditor itself to the host
+applications list. All of its other link dependencies already build on
+host -- LibMarkdown, LibGemini and LibSyntax are standard Lagom libraries
+(the plan's assumption that they were missing was stale), and
+LibWebView/LibFileSystemAccessClient came in with the browser stack and
+the FileSystemAccessServer work. Its GML stringifies to a .cpp compiled
+into the app, so no binary-dir include path is needed. The web view used
+for markdown/HTML preview is created lazily, so a plain-text session needs
+no WebContent; opening a file goes through
+request_file_read_only_approved(), which auto-approves.
+---
+ Meta/Lagom/CMakeLists.txt | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/Meta/Lagom/CMakeLists.txt b/Meta/Lagom/CMakeLists.txt
+index 687dc972bb..884a288afa 100644
+--- a/Meta/Lagom/CMakeLists.txt
++++ b/Meta/Lagom/CMakeLists.txt
+@@ -471,6 +471,7 @@ if (BUILD_LAGOM)
+         Compress
+         Config
+         Crypto
++        CMake
+         Cpp
+         Desktop
+         DeviceTree
+@@ -595,6 +596,7 @@ if (BUILD_LAGOM)
+         add_serenity_subdirectory(Userland/Applications/Piano)
+         add_serenity_subdirectory(Userland/Applications/SoundPlayer)
+         add_serenity_subdirectory(Userland/Applications/Terminal)
++        add_serenity_subdirectory(Userland/Applications/TextEditor)
+ 
+         # Terminal's pty helper is declared as a second target of the Terminal
+         # component; build it here so that target exists for the host build.
+-- 
+2.55.0
+
