@@ -315,3 +315,25 @@ add_test(NAME app-imageviewer-open
         $<TARGET_FILE:ImageDecoder>)
 set_tests_properties(app-imageviewer-open PROPERTIES TIMEOUT 120 SKIP_RETURN_CODE 77)
 
+# SoundPlayer plays a real file (app-completion: the first app of the plan
+# whose only new requirement is already-built services -- AudioServer for the
+# playback, ImageDecoder because the app connects to it at startup). A
+# generated sine WAV is passed as the CLI argument; the assertion is that the
+# default sink's .monitor capture contains audible audio (parec), i.e. the
+# full path worked: SoundPlayer -> LibAudio loader -> AudioServer IPC ->
+# PulseAudio. Skips when no usable PulseAudio is present.
+add_test(NAME app-soundplayer-play
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/soundplayer-play.sh
+        $<TARGET_FILE:serenade-launcher>
+        ${SERENITY_SOURCE_DIR}/Base/res
+        ${CMAKE_CURRENT_BINARY_DIR}/app-soundplayer.png
+        ${CMAKE_CURRENT_BINARY_DIR}
+        $<TARGET_FILE:WindowServer>
+        $<TARGET_FILE:SoundPlayer>
+        $<TARGET_FILE:ConfigServer>
+        $<TARGET_FILE:Clipboard>
+        $<TARGET_FILE:LaunchServer>
+        $<TARGET_FILE:AudioServer>
+        $<TARGET_FILE:ImageDecoder>)
+set_tests_properties(app-soundplayer-play PROPERTIES TIMEOUT 120 SKIP_RETURN_CODE 77)
+

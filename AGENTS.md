@@ -383,10 +383,11 @@ is deferred (no built app links LibNotificationClient yet). Plan, in order: (1) 
 on host — **done** (patch 0050: always-built + service-side `compile_ipc` guarded, same pattern as the
 browser services; runs under the launcher as a broker service; `app-imageviewer-open` proves ImageViewer
 opens a real image through the portal headless, since `request_file_read_only_approved` auto-approves);
-(2) SoundPlayer (all deps already built — M6's audio work pays off directly); (3) Maps (deps built;
-tiles via RequestServer); (4) Mail (deps built incl. LibIMAP; needs the GML binary-dir include path like
-Browser, patch 0048). TextEditor is deferred: it drags in LibMarkdown/LibGemini/LibSyntax, which Lagom
-does not build yet.
+(2) SoundPlayer — **done** (patches 0051–0052; `app-soundplayer-play` proves real playback via a .monitor
+capture; 0052 also fixes a glibc EINVAL crash in the async_enqueue priority path that hit any app using
+it); (3) Maps (deps built; tiles via RequestServer); (4) Mail (deps built incl. LibIMAP; needs the GML
+binary-dir include path like Browser, patch 0048). TextEditor is deferred: it drags in LibMarkdown/
+LibGemini/LibSyntax, which Lagom does not build yet.
 
 ## Patch workflow
 

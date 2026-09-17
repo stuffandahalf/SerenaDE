@@ -23,11 +23,34 @@ Living tracker. Update in the same commit as the work it describes, and keep
 | Audio host backend (PulseAudio)    | M6        | done        | No shim needed: networking/spawning are direct syscalls in this pin. AudioServer routes mixed output through a `pa_simple` sink on hosts (patch 0038, gated on `HAVE_PULSEAUDIO`; CI installs `libpulse-dev`), builds on host (0039); LibAudio's `ConnectionToServer` compiles on hosts (0040); Lagom gains LibDSP + Piano (0041); `Thread::set_priority` before `start()` no longer segfaults under glibc (0042). Launcher groups `--service` entries by binary so AudioServer gets both its sockets in one process. `m6-piano-audio` proves click → DSP → IPC (fd transfer) → Pulse end-to-end by recording the sink's `.monitor` source; skips without a running PulseAudio |
 | Browser services on host           | M6        | done        | ImageDecoder/RequestServer/WebContent (+SQLServer) build on host (patch 0043); service-side `compile_ipc` skipped in Lagom since the client libs already generate the endpoint headers (0044); jail-mode entry points no-op'd for Browser's unconditional pre-exec call (0045); LibWebView out-of-process view + Browser/BrowserSettings apps in Lagom (0046–0048). Launcher gained a `--broker-service` mode: those three services take over an *accepted* client socket (fd 3, one process per connection), so the launcher pre-binds and accept/spawns per connection. Browser needs a seeded `$HOME` (`Base/home/anon`) and a private `XDG_RUNTIME_DIR` (Ladybird singleton state). `m6-browser-load` proves "Browser loads web pages" end-to-end via GET log + screenshot pixel checks; full serial ctest 262/262 |
 | FileSystemAccessServer on host   | post-M6     | done        | Patch 0050: moved into the always-built Services list; service-side `compile_ipc` guarded to SerenityOS because the Lagom root has generated both endpoint headers since patch 0024. Runs under the launcher as a broker service (accepted-socket takeover, one process per connection). `app-imageviewer-open` proves ImageViewer opens a generated PNG through the portal and renders it — `request_file_read_only_approved()` auto-approves, so it is headless; full serial ctest 263/263 |
+| SoundPlayer on host              | post-M6     | done        | Patch 0051 adds it to the Lagom app list (all deps already built, no GML). Patch 0052 makes the async_enqueue enqueuer's priority elevation best-effort: glibc rejects a non-zero SCHED_OTHER priority with EINVAL, which crashed any app using async_enqueue (Piano uses blocking_realtime_enqueue and was unaffected). `app-soundplayer-play` proves real playback end to end via a .monitor capture; full serial ctest 264/264 |
 
 ## Porting log
 
 Record discoveries here as they happen (surprising `#ifdef` gaps, API quirks,
  decisions with trade-offs). Newest first.
+
+ - 2026-09-16 — **App completion: SoundPlayer on host (patches 0051–0052); real audio playback proven.**
+    Step two of the app-completion plan. Patch 0051 adds SoundPlayer to the Lagom host applications list — all
+    link dependencies already build (LibAudio/LibDSP from M6's audio work, LibImageDecoderClient from the
+    browser stack) and it has no GML, so no other wiring was needed. The first run crashed immediately:
+    `VERIFICATION FAILED` at PlaybackManager.cpp:122 (`MUST(m_connection->async_enqueue(...))`). Root-cause
+    chain: async_enqueue() raises its background enqueuer thread with `TRY(set_priority(THREAD_PRIORITY_MAX))`;
+    the thread is already started, so that goes through Thread::set_priority's strict path →
+    `pthread_setschedparam(tid, SCHED_OTHER, {99})`, and glibc rejects any non-zero priority under SCHED_OTHER
+    with EINVAL (verified standalone), which propagated as the crash. Piano never hit this: it uses
+    blocking_realtime_enqueue and never starts the enqueuer. Patch 0052 makes the elevation best-effort —
+    exactly what Thread::start() already does for a pending priority (it ignores pthread_setschedparam's
+    result) — since a lower-priority enqueuer thread still delivers audio correctly.
+
+    New test `app-soundplayer-play` (`tests/scripts/soundplayer-play.sh`): generates a 4-second 440Hz stereo
+    sine WAV with stdlib python, brings up WindowServer + SoundPlayer <file> (Config/Clipboard/Launch/Audio as
+    regular services; ImageDecoder as broker — the app connects to both at startup and aborts if either is
+    missing), records the default sink's .monitor source with parec for the whole run, and asserts ≥2 seconds
+    of RMS > 500. Skips (77) when no usable PulseAudio is present.
+
+    Verification: all 52 patches forward-apply on the bare pin in order; the patched tree is byte-identical to
+    the dev tree; full serial ctest **264/264**.
 
  - 2026-09-16 — **App completion: FileSystemAccessServer on host (patch 0050); ImageViewer opens real files.**
     First step of the post-M6 app-completion plan (AGENTS.md "Current status"): run the remaining

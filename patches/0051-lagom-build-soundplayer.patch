@@ -1,0 +1,29 @@
+From 2bedd2cd72efb5951391c0b8c85e50fd0abb5d68 Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory@serenade.local>
+Date: Wed, 16 Sep 2026 21:00:07 -0400
+Subject: [PATCH] Lagom: Build SoundPlayer on host
+
+All of its link dependencies already build on host (LibAudio and LibDSP
+with the M6 audio work, LibImageDecoderClient with the browser stack),
+and it has no GML, so adding it to the host applications list is enough.
+It connects to AudioServer and ImageDecoder at startup, so a session for
+it needs both services.
+---
+ Meta/Lagom/CMakeLists.txt | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/Meta/Lagom/CMakeLists.txt b/Meta/Lagom/CMakeLists.txt
+index bfb4114c3d..f0914eb803 100644
+--- a/Meta/Lagom/CMakeLists.txt
++++ b/Meta/Lagom/CMakeLists.txt
+@@ -591,6 +591,7 @@ if (BUILD_LAGOM)
+         add_serenity_subdirectory(Userland/Applications/PixelPaint)
+         add_serenity_subdirectory(Userland/Applications/Settings)
+         add_serenity_subdirectory(Userland/Applications/Piano)
++        add_serenity_subdirectory(Userland/Applications/SoundPlayer)
+         add_serenity_subdirectory(Userland/Applications/Terminal)
+ 
+         # Terminal's pty helper is declared as a second target of the Terminal
+-- 
+2.55.0
+

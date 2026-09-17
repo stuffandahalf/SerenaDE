@@ -1,0 +1,39 @@
+From 4c26b9cc90e15d92fb01ef596d537f15aa02260c Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory@serenade.local>
+Date: Wed, 16 Sep 2026 21:00:07 -0400
+Subject: [PATCH] LibAudio: Make the enqueuer thread's priority best-effort
+
+async_enqueue() raised the background enqueuer thread to
+THREAD_PRIORITY_MAX with TRY(). On hosts that call lands in
+Thread::set_priority's strict path (the thread is already started) and
+glibc's pthread_setschedparam rejects a non-zero SCHED_OTHER priority
+with EINVAL, so every app using async_enqueue (e.g. SoundPlayer) aborted
+on its first playback buffer. Apps using blocking_realtime_enqueue (e.g.
+Piano) never hit this path.
+
+Treat the elevation as best effort, exactly like Thread::start() already
+does for a pending priority: a lower-priority enqueuer thread still
+delivers audio correctly.
+---
+ Userland/Libraries/LibAudio/ConnectionToServer.cpp | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/Userland/Libraries/LibAudio/ConnectionToServer.cpp b/Userland/Libraries/LibAudio/ConnectionToServer.cpp
+index 4e9d674e12..facfc59d8b 100644
+--- a/Userland/Libraries/LibAudio/ConnectionToServer.cpp
++++ b/Userland/Libraries/LibAudio/ConnectionToServer.cpp
+@@ -73,7 +73,10 @@ ErrorOr<void> ConnectionToServer::async_enqueue(FixedArray<Sample>&& samples)
+         // Wait until the enqueuer has constructed its loop. A pseudo-spinlock is fine since this happens as soon as the other thread gets scheduled.
+         while (!m_enqueuer_loop)
+             usleep(1);
+-        TRY(m_background_audio_enqueuer->set_priority(THREAD_PRIORITY_MAX));
++        // Best effort, like Thread::start(): hosts without real-time scheduling
++        // privileges reject a non-zero SCHED_OTHER priority (glibc returns
++        // EINVAL), and a lower-priority enqueuer thread still plays correctly.
++        (void)m_background_audio_enqueuer->set_priority(THREAD_PRIORITY_MAX);
+     }
+ 
+     m_user_queue->append(move(samples));
+-- 
+2.55.0
+
