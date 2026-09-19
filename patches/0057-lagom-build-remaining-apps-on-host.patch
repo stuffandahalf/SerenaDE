@@ -1,0 +1,102 @@
+From 51dee33ea97b9bf41f943dd0b783d9e510b79830 Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory@serenade.local>
+Date: Fri, 18 Sep 2026 20:06:46 -0400
+Subject: [PATCH 01/11] Lagom: Build the remaining host-viable apps and their
+ new libraries
+
+Add LibCards, LibChess, LibDebug, LibEDID and LibSymbolication to the
+standard Lagom libraries, and add the remaining host-buildable
+applications (Calendar, CalendarSettings, CertificateSettings,
+CharacterMap, DisplaySettings, FontEditor, GamesSettings, HexEditor,
+KeyboardMapper, KeyboardSettings, MailSettings, MapsSettings, Magnifier,
+MouseSettings, NetworkSettings, Run, Screenshot, SpaceAnalyzer,
+TerminalSettings, ThemeEditor and VideoPlayer) plus the Profiler dev
+tool to the host app list.
+
+SystemMonitor is deliberately not added: every one of its data sources
+(/sys/kernel/processes, memstat, net/*, df) is Serenity-kernel specific
+and has no host equivalent, so it would render nothing.
+---
+ Meta/Lagom/CMakeLists.txt | 34 +++++++++++++++++++++++++++++++++-
+ 1 file changed, 33 insertions(+), 1 deletion(-)
+
+diff --git a/Meta/Lagom/CMakeLists.txt b/Meta/Lagom/CMakeLists.txt
+index 884a288afa..09f8bd1458 100644
+--- a/Meta/Lagom/CMakeLists.txt
++++ b/Meta/Lagom/CMakeLists.txt
+@@ -468,15 +468,19 @@ if (BUILD_LAGOM)
+         Archive
+         Audio
+         DSP
++        Cards
++        Chess
+         Compress
+         Config
+         Crypto
+         CMake
+         Cpp
++        Debug
+         Desktop
+         DeviceTree
+         DNS
+         Diff
++        EDID
+         Gemini
+         Gfx
+         GL
+@@ -505,6 +509,7 @@ if (BUILD_LAGOM)
+         Shell
+         SQL
+         SSH
++        Symbolication
+         Syntax
+         TextCodec
+         Threading
+@@ -587,16 +592,43 @@ if (BUILD_LAGOM)
+         add_serenity_subdirectory(Userland/Applications/Browser)
+         add_serenity_subdirectory(Userland/Applications/BrowserSettings)
+         add_serenity_subdirectory(Userland/Applications/Calculator)
++        add_serenity_subdirectory(Userland/Applications/Calendar)
++        add_serenity_subdirectory(Userland/Applications/CalendarSettings)
++        add_serenity_subdirectory(Userland/Applications/CertificateSettings)
++        add_serenity_subdirectory(Userland/Applications/CharacterMap)
++        add_serenity_subdirectory(Userland/Applications/DisplaySettings)
+         add_serenity_subdirectory(Userland/Applications/FileManager)
++        add_serenity_subdirectory(Userland/Applications/FontEditor)
++        add_serenity_subdirectory(Userland/Applications/GamesSettings)
++        add_serenity_subdirectory(Userland/Applications/HexEditor)
+         add_serenity_subdirectory(Userland/Applications/ImageViewer)
++        add_serenity_subdirectory(Userland/Applications/KeyboardMapper)
++        add_serenity_subdirectory(Userland/Applications/KeyboardSettings)
+         add_serenity_subdirectory(Userland/Applications/Mail)
++        add_serenity_subdirectory(Userland/Applications/MailSettings)
+         add_serenity_subdirectory(Userland/Applications/Maps)
++        add_serenity_subdirectory(Userland/Applications/MapsSettings)
++        add_serenity_subdirectory(Userland/Applications/Magnifier)
++        add_serenity_subdirectory(Userland/Applications/MouseSettings)
++        add_serenity_subdirectory(Userland/Applications/NetworkSettings)
+         add_serenity_subdirectory(Userland/Applications/PixelPaint)
+-        add_serenity_subdirectory(Userland/Applications/Settings)
+         add_serenity_subdirectory(Userland/Applications/Piano)
++        add_serenity_subdirectory(Userland/Applications/Run)
++        add_serenity_subdirectory(Userland/Applications/Screenshot)
++        add_serenity_subdirectory(Userland/Applications/Settings)
+         add_serenity_subdirectory(Userland/Applications/SoundPlayer)
++        add_serenity_subdirectory(Userland/Applications/SpaceAnalyzer)
++
++        # Profiler can load perfcore dumps on host builds (live profiling is
++        # Serenity-only). SystemMonitor is not built: every one of its data
++        # sources (/sys/kernel/processes, memstat, net/*, df) is Serenity
++        # kernel-specific and has no host equivalent.
++        add_serenity_subdirectory(Userland/DevTools/Profiler)
+         add_serenity_subdirectory(Userland/Applications/Terminal)
++        add_serenity_subdirectory(Userland/Applications/TerminalSettings)
+         add_serenity_subdirectory(Userland/Applications/TextEditor)
++        add_serenity_subdirectory(Userland/Applications/ThemeEditor)
++        add_serenity_subdirectory(Userland/Applications/VideoPlayer)
+ 
+         # Terminal's pty helper is declared as a second target of the Terminal
+         # component; build it here so that target exists for the host build.
+-- 
+2.55.0
+

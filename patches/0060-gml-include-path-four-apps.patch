@@ -1,0 +1,67 @@
+From 333ab1e3c19c301866796f066960487c02d7bcd9 Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory@serenade.local>
+Date: Fri, 18 Sep 2026 20:06:46 -0400
+Subject: [PATCH 04/11] CharacterMap+DisplaySettings+FontEditor+ThemeEditor:
+ GML include path
+
+The stringify_gml headers land in the binary dir; the <Applications/...>
+includes need it (same pattern as PixelPaint, FileManager, Piano and
+Browser).
+---
+ Userland/Applications/CharacterMap/CMakeLists.txt    | 3 +++
+ Userland/Applications/DisplaySettings/CMakeLists.txt | 3 +++
+ Userland/Applications/FontEditor/CMakeLists.txt      | 3 +++
+ Userland/Applications/ThemeEditor/CMakeLists.txt     | 3 +++
+ 4 files changed, 12 insertions(+)
+
+diff --git a/Userland/Applications/CharacterMap/CMakeLists.txt b/Userland/Applications/CharacterMap/CMakeLists.txt
+index 42d1f29121..a891c41568 100644
+--- a/Userland/Applications/CharacterMap/CMakeLists.txt
++++ b/Userland/Applications/CharacterMap/CMakeLists.txt
+@@ -20,4 +20,7 @@ set(GENERATED_SOURCES
+ )
+ 
+ serenity_app(CharacterMap ICON app-character-map)
++# The stringify_gml headers land in the binary dir; <Applications/CharacterMap/...>
++# includes need it (same pattern as PixelPaint, FileManager, Piano and Browser).
++target_include_directories(CharacterMap PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/../..)
+ target_link_libraries(CharacterMap PRIVATE LibConfig LibCore LibDesktop LibGfx LibGUI LibMain LibUnicode LibURL)
+diff --git a/Userland/Applications/DisplaySettings/CMakeLists.txt b/Userland/Applications/DisplaySettings/CMakeLists.txt
+index c150c66b44..b3c602e422 100644
+--- a/Userland/Applications/DisplaySettings/CMakeLists.txt
++++ b/Userland/Applications/DisplaySettings/CMakeLists.txt
+@@ -33,4 +33,7 @@ set(GENERATED_SOURCES
+ )
+ 
+ serenity_app(DisplaySettings ICON app-display-settings)
++# The stringify_gml headers land in the binary dir; <Applications/DisplaySettings/...>
++# includes need it (same pattern as PixelPaint, FileManager, Piano and Browser).
++target_include_directories(DisplaySettings PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/../..)
+ target_link_libraries(DisplaySettings PRIVATE LibCore LibDesktop LibGfx LibGUI LibConfig LibIPC LibMain LibEDID LibThreading LibFileSystemAccessClient LibURL)
+diff --git a/Userland/Applications/FontEditor/CMakeLists.txt b/Userland/Applications/FontEditor/CMakeLists.txt
+index 0f5d0a00cb..a9a4d99097 100644
+--- a/Userland/Applications/FontEditor/CMakeLists.txt
++++ b/Userland/Applications/FontEditor/CMakeLists.txt
+@@ -25,4 +25,7 @@ set(GENERATED_SOURCES
+ )
+ 
+ serenity_app(FontEditor ICON app-font-editor)
++# The stringify_gml headers land in the binary dir; <Applications/FontEditor/...>
++# includes need it (same pattern as PixelPaint, FileManager, Piano and Browser).
++target_include_directories(FontEditor PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/../..)
+ target_link_libraries(FontEditor PRIVATE LibConfig LibCore LibFileSystemAccessClient LibGUI LibDesktop LibGfx LibMain LibUnicode LibURL)
+diff --git a/Userland/Applications/ThemeEditor/CMakeLists.txt b/Userland/Applications/ThemeEditor/CMakeLists.txt
+index 8033b28538..ed69699e89 100644
+--- a/Userland/Applications/ThemeEditor/CMakeLists.txt
++++ b/Userland/Applications/ThemeEditor/CMakeLists.txt
+@@ -30,4 +30,7 @@ set(GENERATED_SOURCES
+ )
+ 
+ serenity_app(ThemeEditor ICON app-theme-editor)
++# The stringify_gml headers land in the binary dir; <Applications/ThemeEditor/...>
++# includes need it (same pattern as PixelPaint, FileManager, Piano and Browser).
++target_include_directories(ThemeEditor PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/../..)
+ target_link_libraries(ThemeEditor PRIVATE LibConfig LibCore LibGfx LibGUI LibFileSystem LibFileSystemAccessClient LibIPC LibMain LibURL)
+-- 
+2.55.0
+

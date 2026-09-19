@@ -1,0 +1,40 @@
+From 05deb48986e3496f26be2d7a9d777b7ff83cc011 Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory@serenade.local>
+Date: Fri, 18 Sep 2026 20:06:47 -0400
+Subject: [PATCH 07/11] KeyboardMapper: Fall back to the default keymap on
+ hosts
+
+CharacterMap::fetch_system_map() returns ENOSYS off-Serenity (there is
+no kernel keymap), which made the app exit before showing a window.
+Load /res/keymaps/en-us.json instead; open/save-as work as usual.
+---
+ .../KeyboardMapper/KeyboardMapperWidget.cpp          | 12 +++++++++---
+ 1 file changed, 9 insertions(+), 3 deletions(-)
+
+diff --git a/Userland/Applications/KeyboardMapper/KeyboardMapperWidget.cpp b/Userland/Applications/KeyboardMapper/KeyboardMapperWidget.cpp
+index 215816ddeb..5fb6243a22 100644
+--- a/Userland/Applications/KeyboardMapper/KeyboardMapperWidget.cpp
++++ b/Userland/Applications/KeyboardMapper/KeyboardMapperWidget.cpp
+@@ -145,10 +145,16 @@ ErrorOr<void> KeyboardMapperWidget::load_map_from_file(ByteString const& filenam
+ 
+ ErrorOr<void> KeyboardMapperWidget::load_map_from_system()
+ {
+-    auto character_map = TRY(Keyboard::CharacterMap::fetch_system_map());
++    // Host builds have no kernel keymap to fetch; fall back to the default
++    // US layout so the app is still usable (open/save-as work as usual).
++    auto character_map = Keyboard::CharacterMap::fetch_system_map();
++    if (character_map.is_error()) {
++        m_filename = "/res/keymaps/en-us.json";
++        return load_map_from_file(m_filename);
++    }
+ 
+-    m_filename = ByteString::formatted("/res/keymaps/{}.json", character_map.character_map_name());
+-    m_character_map = character_map.character_map_data();
++    m_filename = ByteString::formatted("/res/keymaps/{}.json", character_map.value().character_map_name());
++    m_character_map = character_map.value().character_map_data();
+     set_current_map("map");
+ 
+     for (auto& widget : m_map_group->child_widgets()) {
+-- 
+2.55.0
+

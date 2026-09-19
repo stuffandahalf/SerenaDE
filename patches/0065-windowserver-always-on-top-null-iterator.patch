@@ -1,0 +1,35 @@
+From f4b72f307bd1abaff956c1d1b048fdb882f49224 Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory@serenade.local>
+Date: Fri, 18 Sep 2026 20:06:47 -0400
+Subject: [PATCH 09/11] WindowServer: Do not increment a null window-stack
+ iterator
+
+move_always_on_top_windows_to_front() reassigns the loop iterator to
+begin() after moving an always-on-top window out; if that was the only
+window in the stack, begin() is end() and the for-loop's ++iterator then
+calls IntrusiveList::next(nullptr), segfaulting WindowServer. On
+Serenity the Taskbar keeps every stack non-empty so this never
+triggered; on host sessions (no Taskbar) a lone always-on-top window
+(e.g. Magnifier) crashed it.
+---
+ Userland/Services/WindowServer/WindowStack.cpp | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/Userland/Services/WindowServer/WindowStack.cpp b/Userland/Services/WindowServer/WindowStack.cpp
+index c665742cd9..538d9e2a95 100644
+--- a/Userland/Services/WindowServer/WindowStack.cpp
++++ b/Userland/Services/WindowServer/WindowStack.cpp
+@@ -66,6 +66,10 @@ void WindowStack::move_always_on_top_windows_to_front()
+             m_windows.remove(window);
+             always_on_top_list.append(window);
+             iterator = m_windows.begin();
++            // If that was the only window, begin() is now end(); incrementing a
++            // null iterator would dereference nothing.
++            if (iterator == m_windows.end())
++                break;
+         }
+     }
+ 
+-- 
+2.55.0
+

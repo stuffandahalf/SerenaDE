@@ -1,0 +1,43 @@
+From 906b04e4bfd62f47f043d96e0c18f09f6bba033a Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory@serenade.local>
+Date: Fri, 18 Sep 2026 20:06:46 -0400
+Subject: [PATCH 03/11] LibEDID+LibCards: Fix host builds
+
+LibEDID's <sys/devices/gpu.h> include resolves to the WindowServer
+target's host shim on Lagom builds (the real header is a Serenity LibC
+one); add that include directory. CardGame needs an explicit <float.h>
+for FLT_MAX, which Serenity's LibC provided transitively.
+---
+ Userland/Libraries/LibCards/CardGame.cpp  | 1 +
+ Userland/Libraries/LibEDID/CMakeLists.txt | 6 ++++++
+ 2 files changed, 7 insertions(+)
+
+diff --git a/Userland/Libraries/LibCards/CardGame.cpp b/Userland/Libraries/LibCards/CardGame.cpp
+index 9fb38e335c..29d225c0b4 100644
+--- a/Userland/Libraries/LibCards/CardGame.cpp
++++ b/Userland/Libraries/LibCards/CardGame.cpp
+@@ -13,6 +13,7 @@
+ #include <LibGUI/Process.h>
+ #include <LibGUI/Window.h>
+ #include <LibGfx/Palette.h>
++#include <float.h>
+ 
+ namespace Cards {
+ 
+diff --git a/Userland/Libraries/LibEDID/CMakeLists.txt b/Userland/Libraries/LibEDID/CMakeLists.txt
+index 34d461047a..5d2fab6556 100644
+--- a/Userland/Libraries/LibEDID/CMakeLists.txt
++++ b/Userland/Libraries/LibEDID/CMakeLists.txt
+@@ -9,3 +9,9 @@ set(SOURCES
+ 
+ serenity_lib(LibEDID edid)
+ target_compile_definitions(LibEDID PRIVATE ENABLE_PNP_IDS_DATA=$<BOOL:${ENABLE_PNP_IDS_DOWNLOAD}>)
++
++if (NOT SERENITYOS)
++    # <sys/devices/gpu.h> is a Serenity LibC header; on host builds the
++    # WindowServer target generates a shim providing the host-side types.
++    target_include_directories(LibEDID PRIVATE ${CMAKE_BINARY_DIR}/lagom/Userland/Services/WindowServer/include)
++endif()
+-- 
+2.55.0
+

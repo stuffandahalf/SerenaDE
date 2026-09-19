@@ -1,0 +1,83 @@
+From 4a262daf59a1fb2fb90c15293f844e8cce3e071d Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory@serenade.local>
+Date: Fri, 18 Sep 2026 20:06:47 -0400
+Subject: [PATCH 06/11] LibCore: Remap /res/* for directory iteration and raw
+ opens
+
+The existing $SERENITY_RES remap only covered Core::File. Two more
+paths open /res directly: DirIterator (POSIX opendir) -- used e.g. by
+Gfx::list_installed_system_themes -- and Core::Directory, which opens
+through System::openat. Without the remap, apps that scan /res
+directories (DisplaySettings' theme list, GamesSettings' card sets,
+Run's app list) silently see nothing or fail on host builds.
+---
+ Userland/Libraries/LibCore/DirIterator.cpp | 15 ++++++++++++++-
+ Userland/Libraries/LibCore/System.cpp      | 12 ++++++++++++
+ 2 files changed, 26 insertions(+), 1 deletion(-)
+
+diff --git a/Userland/Libraries/LibCore/DirIterator.cpp b/Userland/Libraries/LibCore/DirIterator.cpp
+index 7e4acb8398..234ba95447 100644
+--- a/Userland/Libraries/LibCore/DirIterator.cpp
++++ b/Userland/Libraries/LibCore/DirIterator.cpp
+@@ -7,6 +7,7 @@
+ 
+ #include <AK/Vector.h>
+ #include <LibCore/DirIterator.h>
++#include <cstdlib>
+ #include <errno.h>
+ #include <fcntl.h>
+ #include <sys/stat.h>
+@@ -19,7 +20,19 @@ DirIterator::DirIterator(ByteString path, Flags flags)
+ {
+     m_dir = opendir(m_path.characters());
+     if (!m_dir) {
+-        m_error = Error::from_errno(errno);
++        int open_error = errno;
++        if (open_error == ENOENT && m_path.starts_with("/res/"sv)) {
++            // On host systems (Lagom builds) /res does not exist; $SERENITY_RES
++            // points at the resource root instead. Same remap as Core::File.
++            if (auto const* res_root = std::getenv("SERENITY_RES")) {
++                auto remapped = ByteString::formatted("{}/{}", res_root, m_path.substring_view(5));
++                m_dir = opendir(remapped.characters());
++                if (m_dir)
++                    m_path = move(remapped);
++            }
++        }
++        if (!m_dir)
++            m_error = Error::from_errno(open_error);
+     }
+ }
+ 
+diff --git a/Userland/Libraries/LibCore/System.cpp b/Userland/Libraries/LibCore/System.cpp
+index cab45abdd8..1f06e24a3c 100644
+--- a/Userland/Libraries/LibCore/System.cpp
++++ b/Userland/Libraries/LibCore/System.cpp
+@@ -17,6 +17,7 @@
+ #include <LibCore/Environment.h>
+ #include <LibCore/SessionManagement.h>
+ #include <LibCore/System.h>
++#include <fcntl.h>
+ #include <limits.h>
+ #include <stdarg.h>
+ #include <stdlib.h>
+@@ -633,6 +634,17 @@ ErrorOr<int> openat(int fd, StringView path, int options, mode_t mode)
+     // NOTE: We have to ensure that the path is null-terminated.
+     ByteString path_string = path;
+     int rc = ::openat(fd, path_string.characters(), options, mode);
++    if (rc < 0 && errno == ENOENT && fd == AT_FDCWD
++        && path.starts_with("/res/"sv) && (options & O_ACCMODE) == O_RDONLY) {
++        // On host systems (Lagom builds) /res does not exist; $SERENITY_RES
++        // points at the resource root instead. This also covers callers that
++        // open through raw System::open (e.g. Core::Directory), which bypass
++        // Core::File's own remap.
++        if (auto const* res_root = std::getenv("SERENITY_RES")) {
++            auto remapped = ByteString::formatted("{}/{}", res_root, path.substring_view(5));
++            rc = ::openat(fd, remapped.characters(), options, mode);
++        }
++    }
+     if (rc < 0)
+         return Error::from_syscall("open"sv, -errno);
+     return rc;
+-- 
+2.55.0
+

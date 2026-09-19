@@ -1,0 +1,65 @@
+From c21c181761bce92624456f96e0677697811f1379 Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory@serenade.local>
+Date: Fri, 18 Sep 2026 20:06:47 -0400
+Subject: [PATCH 10/11] Profiler: Gate live profiling to Serenity
+
+profiling_enable/disable and /proc/<pid>/perf_events are Serenity
+perfcore APIs with no host equivalent. Host builds can still load an
+existing perfcore file (file parsing + symbolication is portable);
+without one, exit with a message.
+---
+ Userland/DevTools/Profiler/main.cpp | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/Userland/DevTools/Profiler/main.cpp b/Userland/DevTools/Profiler/main.cpp
+index dd25138a67..d73ae34d0a 100644
+--- a/Userland/DevTools/Profiler/main.cpp
++++ b/Userland/DevTools/Profiler/main.cpp
+@@ -38,12 +38,16 @@
+ #include <LibGUI/TreeView.h>
+ #include <LibGUI/Window.h>
+ #include <LibMain/Main.h>
++#ifdef AK_OS_SERENITY
+ #include <serenity.h>
++#endif
+ #include <string.h>
+ 
+ using namespace Profiler;
+ 
++#ifdef AK_OS_SERENITY
+ static bool generate_profile(pid_t& pid);
++#endif
+ 
+ ErrorOr<int> serenity_main(Main::Arguments arguments)
+ {
+@@ -64,9 +68,14 @@ ErrorOr<int> serenity_main(Main::Arguments arguments)
+ 
+     ByteString perfcore_file;
+     if (perfcore_file_arg.is_empty()) {
++#ifdef AK_OS_SERENITY
+         if (!generate_profile(pid))
+             return 0;
+         perfcore_file = ByteString::formatted("/proc/{}/perf_events", pid);
++#else
++        warnln("Live profiling is not available in host builds; pass a perfcore file as an argument");
++        return 1;
++#endif
+     } else {
+         perfcore_file = perfcore_file_arg;
+     }
+@@ -312,6 +321,7 @@ ErrorOr<int> serenity_main(Main::Arguments arguments)
+     return app->exec();
+ }
+ 
++#ifdef AK_OS_SERENITY
+ static bool prompt_to_stop_profiling(pid_t pid, ByteString const& process_name)
+ {
+     auto window = GUI::Window::construct();
+@@ -382,3 +392,4 @@ bool generate_profile(pid_t& pid)
+ 
+     return true;
+ }
++#endif
+-- 
+2.55.0
+

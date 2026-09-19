@@ -1,0 +1,185 @@
+From 438cbb4aaab69c1fc88af310bcbb74f76d339070 Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory@serenade.local>
+Date: Fri, 18 Sep 2026 20:06:46 -0400
+Subject: [PATCH 02/11] LibDebug: Build on host by gating the live-debugging
+ surface
+
+The register ABI (PtraceRegisters from Serenity's LibC sys/arch/regs.h)
+and the ptrace-driven DebugSession have no host equivalent. Gate them
+behind AK_OS_SERENITY so the portable parts -- DWARF/ELF reading and
+symbolication, used by e.g. Profiler -- build and work on hosts. Also
+make one error return portable (Error::from_errno instead of a bare
+errno, which only converts on Serenity).
+---
+ Userland/Libraries/LibDebug/CMakeLists.txt            | 8 +++++++-
+ Userland/Libraries/LibDebug/DebugInfo.cpp             | 2 ++
+ Userland/Libraries/LibDebug/DebugInfo.h               | 8 ++++++++
+ Userland/Libraries/LibDebug/DebugSession.h            | 6 ++++++
+ Userland/Libraries/LibDebug/Dwarf/CompilationUnit.cpp | 2 +-
+ Userland/Libraries/LibDebug/ProcessInspector.h        | 4 ++++
+ 6 files changed, 28 insertions(+), 2 deletions(-)
+
+diff --git a/Userland/Libraries/LibDebug/CMakeLists.txt b/Userland/Libraries/LibDebug/CMakeLists.txt
+index e022c1a13c..cac528f1ff 100644
+--- a/Userland/Libraries/LibDebug/CMakeLists.txt
++++ b/Userland/Libraries/LibDebug/CMakeLists.txt
+@@ -1,6 +1,5 @@
+ set(SOURCES
+     DebugInfo.cpp
+-    DebugSession.cpp
+     Dwarf/AbbreviationsMap.cpp
+     Dwarf/AddressRanges.cpp
+     Dwarf/AttributeValue.cpp
+@@ -11,5 +10,12 @@ set(SOURCES
+     ProcessInspector.cpp
+ )
+ 
++if (SERENITYOS)
++    # DebugSession drives a live debugee through Serenity's ptrace ABI, which
++    # has no host equivalent. The rest of the library (DWARF/ELF reading and
++    # symbolication) is fully portable and used by e.g. SystemMonitor.
++    list(APPEND SOURCES DebugSession.cpp)
++endif()
++
+ serenity_lib(LibDebug debug)
+ target_link_libraries(LibDebug PRIVATE LibCore LibELF LibFileSystem LibRegex)
+diff --git a/Userland/Libraries/LibDebug/DebugInfo.cpp b/Userland/Libraries/LibDebug/DebugInfo.cpp
+index d972f012aa..74759d3b43 100644
+--- a/Userland/Libraries/LibDebug/DebugInfo.cpp
++++ b/Userland/Libraries/LibDebug/DebugInfo.cpp
+@@ -159,6 +159,7 @@ Optional<DebugInfo::SourcePositionAndAddress> DebugInfo::get_address_from_source
+     return result;
+ }
+ 
++#ifdef AK_OS_SERENITY
+ ErrorOr<Vector<NonnullOwnPtr<DebugInfo::VariableInfo>>> DebugInfo::get_variables_in_current_scope(PtraceRegisters const& regs) const
+ {
+     Vector<NonnullOwnPtr<DebugInfo::VariableInfo>> variables;
+@@ -338,6 +339,7 @@ ErrorOr<void> DebugInfo::add_type_info_to_variable(Dwarf::DIE const& type_die, P
+ 
+     return {};
+ }
++#endif
+ 
+ bool DebugInfo::is_variable_tag_supported(Dwarf::EntryTag const& tag)
+ {
+diff --git a/Userland/Libraries/LibDebug/DebugInfo.h b/Userland/Libraries/LibDebug/DebugInfo.h
+index 1fc11492d7..08ae615de6 100644
+--- a/Userland/Libraries/LibDebug/DebugInfo.h
++++ b/Userland/Libraries/LibDebug/DebugInfo.h
+@@ -14,7 +14,9 @@
+ #include <LibDebug/Dwarf/DwarfInfo.h>
+ #include <LibDebug/Dwarf/LineProgram.h>
+ #include <LibELF/Image.h>
++#ifdef AK_OS_SERENITY
+ #include <sys/arch/regs.h>
++#endif
+ 
+ namespace Debug {
+ 
+@@ -89,7 +91,9 @@ public:
+         Vector<Dwarf::DIE> dies_of_variables;
+     };
+ 
++#ifdef AK_OS_SERENITY
+     ErrorOr<Vector<NonnullOwnPtr<VariableInfo>>> get_variables_in_current_scope(PtraceRegisters const&) const;
++#endif
+ 
+     Optional<SourcePosition> get_source_position(FlatPtr address) const;
+ 
+@@ -115,9 +119,13 @@ private:
+     ErrorOr<void> prepare_variable_scopes();
+     ErrorOr<void> prepare_lines();
+     ErrorOr<void> parse_scopes_impl(Dwarf::DIE const& die);
++#ifdef AK_OS_SERENITY
+     ErrorOr<OwnPtr<VariableInfo>> create_variable_info(Dwarf::DIE const& variable_die, PtraceRegisters const&, u32 address_offset = 0) const;
++#endif
+     static bool is_variable_tag_supported(Dwarf::EntryTag const& tag);
++#ifdef AK_OS_SERENITY
+     ErrorOr<void> add_type_info_to_variable(Dwarf::DIE const& type_die, PtraceRegisters const& regs, DebugInfo::VariableInfo* parent_variable) const;
++#endif
+ 
+     ErrorOr<Optional<Dwarf::LineProgram::DirectoryAndFile>> get_source_path_of_inline(Dwarf::DIE const&) const;
+     ErrorOr<Optional<uint32_t>> get_line_of_inline(Dwarf::DIE const&) const;
+diff --git a/Userland/Libraries/LibDebug/DebugSession.h b/Userland/Libraries/LibDebug/DebugSession.h
+index 2106ecf531..1ba4a61335 100644
+--- a/Userland/Libraries/LibDebug/DebugSession.h
++++ b/Userland/Libraries/LibDebug/DebugSession.h
+@@ -16,8 +16,10 @@
+ #include <LibDebug/DebugInfo.h>
+ #include <LibDebug/ProcessInspector.h>
+ #include <signal.h>
++#ifdef AK_OS_SERENITY
+ #include <sys/arch/regs.h>
+ #include <sys/ptrace.h>
++#endif
+ #include <sys/wait.h>
+ 
+ namespace Debug {
+@@ -32,8 +34,10 @@ public:
+     // ^Debug::ProcessInspector
+     virtual bool poke(FlatPtr address, FlatPtr data) override;
+     virtual Optional<FlatPtr> peek(FlatPtr address) const override;
++#ifdef AK_OS_SERENITY
+     virtual PtraceRegisters get_registers() const override;
+     virtual void set_registers(PtraceRegisters const&) override;
++#endif
+     virtual void for_each_loaded_library(Function<IterationDecision(LoadedLibrary const&)>) const override;
+ 
+     int pid() const { return m_debuggee_pid; }
+@@ -160,6 +164,7 @@ private:
+     Function<void(float)> m_on_initialization_progress;
+ };
+ 
++#ifdef AK_OS_SERENITY
+ template<typename Callback>
+ void DebugSession::run(DesiredInitialDebugeeState initial_debugee_state, Callback callback)
+ {
+@@ -322,5 +327,6 @@ void DebugSession::run(DesiredInitialDebugeeState initial_debugee_state, Callbac
+         }
+     }
+ }
++#endif
+ 
+ }
+diff --git a/Userland/Libraries/LibDebug/Dwarf/CompilationUnit.cpp b/Userland/Libraries/LibDebug/Dwarf/CompilationUnit.cpp
+index 1539c2ed33..9abc803fa4 100644
+--- a/Userland/Libraries/LibDebug/Dwarf/CompilationUnit.cpp
++++ b/Userland/Libraries/LibDebug/Dwarf/CompilationUnit.cpp
+@@ -35,7 +35,7 @@ ErrorOr<void> CompilationUnit::populate_line_program(ReadonlyBytes debug_line_da
+ 
+     auto res = TRY(die.get_attribute(Attribute::StmtList));
+     if (!res.has_value())
+-        return EINVAL;
++        return Error::from_errno(EINVAL);
+     VERIFY(res->form() == AttributeDataForm::SecOffset);
+ 
+     FixedMemoryStream debug_line_stream { debug_line_data };
+diff --git a/Userland/Libraries/LibDebug/ProcessInspector.h b/Userland/Libraries/LibDebug/ProcessInspector.h
+index 4b6a388ae2..1ab59f9206 100644
+--- a/Userland/Libraries/LibDebug/ProcessInspector.h
++++ b/Userland/Libraries/LibDebug/ProcessInspector.h
+@@ -9,7 +9,9 @@
+ 
+ #include "LoadedLibrary.h"
+ #include <AK/Types.h>
++#ifdef AK_OS_SERENITY
+ #include <sys/arch/regs.h>
++#endif
+ 
+ namespace Debug {
+ 
+@@ -18,8 +20,10 @@ public:
+     virtual ~ProcessInspector() = default;
+     virtual bool poke(FlatPtr address, FlatPtr data) = 0;
+     virtual Optional<FlatPtr> peek(FlatPtr address) const = 0;
++#ifdef AK_OS_SERENITY
+     virtual PtraceRegisters get_registers() const = 0;
+     virtual void set_registers(PtraceRegisters const&) = 0;
++#endif
+     virtual void for_each_loaded_library(Function<IterationDecision(LoadedLibrary const&)>) const = 0;
+ 
+     LoadedLibrary const* library_at(FlatPtr address) const;
+-- 
+2.55.0
+

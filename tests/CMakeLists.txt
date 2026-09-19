@@ -410,3 +410,304 @@ add_test(NAME app-texteditor-open
         $<TARGET_FILE:FileSystemAccessServer>)
 set_tests_properties(app-texteditor-open PROPERTIES TIMEOUT 90)
 
+# --- Second Lagom batch ------------------------------------------------------
+# The remaining host-buildable Serenity apps, added to the Lagom app list by
+# patch 0057 (plus per-app portability patches). Six render deterministic
+# windows with no file argument and are golden-checked through the shared
+# app-golden.sh driver (fresh per-run $HOME keeps placement stable); the rest
+# show host-dependent content (dates, network interfaces, monitor info) or a
+# lazily-populated view, so they get a functional --expect-window check.
+
+# CharacterMap renders its Unicode grid from the pinned LibUnicode data: no
+# host-dependent content, golden-able.
+add_test(NAME app-charactermap
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/app-golden.sh
+        $<TARGET_FILE:serenade-launcher>
+        ${SERENITY_SOURCE_DIR}/Base/res
+        ${CMAKE_CURRENT_BINARY_DIR}/app-charactermap.png
+        ${CMAKE_CURRENT_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/golden/charactermap.png
+        $<TARGET_FILE:WindowServer>
+        $<TARGET_FILE:CharacterMap>
+        $<TARGET_FILE:ConfigServer>
+        $<TARGET_FILE:Clipboard>
+        $<TARGET_FILE:LaunchServer>)
+set_tests_properties(app-charactermap PROPERTIES TIMEOUT 90)
+
+# Run lists the apps from the pinned /res/apps .af files; the list and icons
+# are fixed, so the render is golden-able.
+add_test(NAME app-run
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/app-golden.sh
+        $<TARGET_FILE:serenade-launcher>
+        ${SERENITY_SOURCE_DIR}/Base/res
+        ${CMAKE_CURRENT_BINARY_DIR}/app-run.png
+        ${CMAKE_CURRENT_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/golden/run.png
+        $<TARGET_FILE:WindowServer>
+        $<TARGET_FILE:Run>
+        $<TARGET_FILE:ConfigServer>
+        $<TARGET_FILE:Clipboard>
+        $<TARGET_FILE:LaunchServer>)
+set_tests_properties(app-run PROPERTIES TIMEOUT 90)
+
+# GamesSettings renders the card-game and chess settings panels, including the
+# card back icon view over /res/graphics/cards and the chess piece previews --
+# the first host render of LibCards/LibChess. All content comes from pinned
+# res files and defaults, so it is golden-able.
+add_test(NAME app-gamessettings
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/app-golden.sh
+        $<TARGET_FILE:serenade-launcher>
+        ${SERENITY_SOURCE_DIR}/Base/res
+        ${CMAKE_CURRENT_BINARY_DIR}/app-gamessettings.png
+        ${CMAKE_CURRENT_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/golden/gamessettings.png
+        $<TARGET_FILE:WindowServer>
+        $<TARGET_FILE:GamesSettings>
+        $<TARGET_FILE:ConfigServer>
+        $<TARGET_FILE:Clipboard>
+        $<TARGET_FILE:LaunchServer>)
+set_tests_properties(app-gamessettings PROPERTIES TIMEOUT 90)
+
+# ThemeEditor renders the default theme's window preview and property panels;
+# everything derives from the pinned res theme, so it is golden-able.
+add_test(NAME app-themeeditor
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/app-golden.sh
+        $<TARGET_FILE:serenade-launcher>
+        ${SERENITY_SOURCE_DIR}/Base/res
+        ${CMAKE_CURRENT_BINARY_DIR}/app-themeeditor.png
+        ${CMAKE_CURRENT_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/golden/themeeditor.png
+        $<TARGET_FILE:WindowServer>
+        $<TARGET_FILE:ThemeEditor>
+        $<TARGET_FILE:ConfigServer>
+        $<TARGET_FILE:Clipboard>
+        $<TARGET_FILE:LaunchServer>)
+set_tests_properties(app-themeeditor PROPERTIES TIMEOUT 90)
+
+# VideoPlayer with no file argument renders its empty player (transport
+# controls, blank video area); deterministic and golden-able.
+add_test(NAME app-videoplayer
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/app-golden.sh
+        $<TARGET_FILE:serenade-launcher>
+        ${SERENITY_SOURCE_DIR}/Base/res
+        ${CMAKE_CURRENT_BINARY_DIR}/app-videoplayer.png
+        ${CMAKE_CURRENT_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/golden/videoplayer.png
+        $<TARGET_FILE:WindowServer>
+        $<TARGET_FILE:VideoPlayer>
+        $<TARGET_FILE:ConfigServer>
+        $<TARGET_FILE:Clipboard>
+        $<TARGET_FILE:LaunchServer>)
+set_tests_properties(app-videoplayer PROPERTIES TIMEOUT 90)
+
+# HexEditor with no file argument renders its empty editor (toolbar, blank hex
+# area). Opening a file goes through the interactive request_file() prompt, so
+# the headless test uses the empty state; deterministic and golden-able.
+add_test(NAME app-hexeditor
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/app-golden.sh
+        $<TARGET_FILE:serenade-launcher>
+        ${SERENITY_SOURCE_DIR}/Base/res
+        ${CMAKE_CURRENT_BINARY_DIR}/app-hexeditor.png
+        ${CMAKE_CURRENT_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/golden/hexeditor.png
+        $<TARGET_FILE:WindowServer>
+        $<TARGET_FILE:HexEditor>
+        $<TARGET_FILE:ConfigServer>
+        $<TARGET_FILE:Clipboard>
+        $<TARGET_FILE:LaunchServer>)
+set_tests_properties(app-hexeditor PROPERTIES TIMEOUT 90)
+
+# Calendar renders the current month's grid: the dates are wall-clock dependent,
+# so a functional window check instead of a golden.
+add_test(NAME app-calendar
+    COMMAND serenade-launcher
+        --res ${SERENITY_SOURCE_DIR}/Base/res
+        --screenshot ${CMAKE_CURRENT_BINARY_DIR}/app-calendar.png
+        --delay 5000
+        --log-dir ${CMAKE_CURRENT_BINARY_DIR}
+        --service /tmp/session/0/portal/config=$<TARGET_FILE:ConfigServer>
+        --service /tmp/session/0/portal/clipboard=$<TARGET_FILE:Clipboard>
+        --service /tmp/session/0/portal/launch=$<TARGET_FILE:LaunchServer>
+        --expect-window 0.05
+        $<TARGET_FILE:WindowServer>
+        $<TARGET_FILE:Calendar>)
+set_tests_properties(app-calendar PROPERTIES TIMEOUT 90)
+
+# CalendarSettings renders its settings panels with default values; the panel
+# content is fixed but the check stays functional (window presence) since no
+# golden was captured for it.
+add_test(NAME app-calendarsettings
+    COMMAND serenade-launcher
+        --res ${SERENITY_SOURCE_DIR}/Base/res
+        --screenshot ${CMAKE_CURRENT_BINARY_DIR}/app-calendarsettings.png
+        --delay 5000
+        --log-dir ${CMAKE_CURRENT_BINARY_DIR}
+        --service /tmp/session/0/portal/config=$<TARGET_FILE:ConfigServer>
+        --service /tmp/session/0/portal/clipboard=$<TARGET_FILE:Clipboard>
+        --service /tmp/session/0/portal/launch=$<TARGET_FILE:LaunchServer>
+        --expect-window 0.05
+        $<TARGET_FILE:WindowServer>
+        $<TARGET_FILE:CalendarSettings>)
+set_tests_properties(app-calendarsettings PROPERTIES TIMEOUT 90)
+
+# CertificateSettings with a fresh (per-CI-job) config shows its empty
+# certificate store UI; functional window check.
+add_test(NAME app-certificatesettings
+    COMMAND serenade-launcher
+        --res ${SERENITY_SOURCE_DIR}/Base/res
+        --screenshot ${CMAKE_CURRENT_BINARY_DIR}/app-certificatesettings.png
+        --delay 5000
+        --log-dir ${CMAKE_CURRENT_BINARY_DIR}
+        --service /tmp/session/0/portal/config=$<TARGET_FILE:ConfigServer>
+        --service /tmp/session/0/portal/clipboard=$<TARGET_FILE:Clipboard>
+        --service /tmp/session/0/portal/launch=$<TARGET_FILE:LaunchServer>
+        --expect-window 0.05
+        $<TARGET_FILE:WindowServer>
+        $<TARGET_FILE:CertificateSettings>)
+set_tests_properties(app-certificatesettings PROPERTIES TIMEOUT 90)
+
+# DisplaySettings renders its settings panels; the monitor section reflects the
+# WindowServer's screen layout (virtual screen in CI), so a functional check.
+add_test(NAME app-displaysettings
+    COMMAND serenade-launcher
+        --res ${SERENITY_SOURCE_DIR}/Base/res
+        --screenshot ${CMAKE_CURRENT_BINARY_DIR}/app-displaysettings.png
+        --delay 5000
+        --log-dir ${CMAKE_CURRENT_BINARY_DIR}
+        --service /tmp/session/0/portal/config=$<TARGET_FILE:ConfigServer>
+        --service /tmp/session/0/portal/clipboard=$<TARGET_FILE:Clipboard>
+        --service /tmp/session/0/portal/launch=$<TARGET_FILE:LaunchServer>
+        --expect-window 0.05
+        $<TARGET_FILE:WindowServer>
+        $<TARGET_FILE:DisplaySettings>)
+set_tests_properties(app-displaysettings PROPERTIES TIMEOUT 90)
+
+# FontEditor connects to the FileSystemAccessClient at startup (its font-open
+# path), so the FileSystemAccessServer must run as a broker service. With no
+# file argument it renders its empty editor; functional window check.
+add_test(NAME app-fonteditor
+    COMMAND serenade-launcher
+        --res ${SERENITY_SOURCE_DIR}/Base/res
+        --screenshot ${CMAKE_CURRENT_BINARY_DIR}/app-fonteditor.png
+        --delay 5000
+        --log-dir ${CMAKE_CURRENT_BINARY_DIR}
+        --service /tmp/session/0/portal/config=$<TARGET_FILE:ConfigServer>
+        --service /tmp/session/0/portal/clipboard=$<TARGET_FILE:Clipboard>
+        --service /tmp/session/0/portal/launch=$<TARGET_FILE:LaunchServer>
+        --broker-service /tmp/session/0/portal/filesystemaccess=$<TARGET_FILE:FileSystemAccessServer>
+        --expect-window 0.05
+        $<TARGET_FILE:WindowServer>
+        $<TARGET_FILE:FontEditor>)
+set_tests_properties(app-fonteditor PROPERTIES TIMEOUT 90)
+
+# KeyboardMapper loads the system keymap; host builds have no kernel keymap, so
+# it falls back to the default en-us map from /res/keymaps (patch 0058). The
+# rendered keyboard is fixed content; functional window check.
+add_test(NAME app-keyboardmapper
+    COMMAND serenade-launcher
+        --res ${SERENITY_SOURCE_DIR}/Base/res
+        --screenshot ${CMAKE_CURRENT_BINARY_DIR}/app-keyboardmapper.png
+        --delay 5000
+        --log-dir ${CMAKE_CURRENT_BINARY_DIR}
+        --service /tmp/session/0/portal/config=$<TARGET_FILE:ConfigServer>
+        --service /tmp/session/0/portal/clipboard=$<TARGET_FILE:Clipboard>
+        --service /tmp/session/0/portal/launch=$<TARGET_FILE:LaunchServer>
+        --expect-window 0.05
+        $<TARGET_FILE:WindowServer>
+        $<TARGET_FILE:KeyboardMapper>)
+set_tests_properties(app-keyboardmapper PROPERTIES TIMEOUT 90)
+
+# KeyboardSettings renders its settings panels with defaults; functional check.
+add_test(NAME app-keyboardsettings
+    COMMAND serenade-launcher
+        --res ${SERENITY_SOURCE_DIR}/Base/res
+        --screenshot ${CMAKE_CURRENT_BINARY_DIR}/app-keyboardsettings.png
+        --delay 5000
+        --log-dir ${CMAKE_CURRENT_BINARY_DIR}
+        --service /tmp/session/0/portal/config=$<TARGET_FILE:ConfigServer>
+        --service /tmp/session/0/portal/clipboard=$<TARGET_FILE:Clipboard>
+        --service /tmp/session/0/portal/launch=$<TARGET_FILE:LaunchServer>
+        --expect-window 0.05
+        $<TARGET_FILE:WindowServer>
+        $<TARGET_FILE:KeyboardSettings>)
+set_tests_properties(app-keyboardsettings PROPERTIES TIMEOUT 90)
+
+# MailSettings shows the (empty) account list; functional check.
+add_test(NAME app-mailsettings
+    COMMAND serenade-launcher
+        --res ${SERENITY_SOURCE_DIR}/Base/res
+        --screenshot ${CMAKE_CURRENT_BINARY_DIR}/app-mailsettings.png
+        --delay 5000
+        --log-dir ${CMAKE_CURRENT_BINARY_DIR}
+        --service /tmp/session/0/portal/config=$<TARGET_FILE:ConfigServer>
+        --service /tmp/session/0/portal/clipboard=$<TARGET_FILE:Clipboard>
+        --service /tmp/session/0/portal/launch=$<TARGET_FILE:LaunchServer>
+        --expect-window 0.05
+        $<TARGET_FILE:WindowServer>
+        $<TARGET_FILE:MailSettings>)
+set_tests_properties(app-mailsettings PROPERTIES TIMEOUT 90)
+
+# MapsSettings renders the map settings (tile server, default location);
+# functional check.
+add_test(NAME app-mapssettings
+    COMMAND serenade-launcher
+        --res ${SERENITY_SOURCE_DIR}/Base/res
+        --screenshot ${CMAKE_CURRENT_BINARY_DIR}/app-mapssettings.png
+        --delay 5000
+        --log-dir ${CMAKE_CURRENT_BINARY_DIR}
+        --service /tmp/session/0/portal/config=$<TARGET_FILE:ConfigServer>
+        --service /tmp/session/0/portal/clipboard=$<TARGET_FILE:Clipboard>
+        --service /tmp/session/0/portal/launch=$<TARGET_FILE:LaunchServer>
+        --expect-window 0.05
+        $<TARGET_FILE:WindowServer>
+        $<TARGET_FILE:MapsSettings>)
+set_tests_properties(app-mapssettings PROPERTIES TIMEOUT 90)
+
+# MouseSettings renders its sliders/spinboxes with default values; functional
+# check. (It includes <WindowServer/Screen.h> for the acceleration limits, so
+# patch 0057 also points it at the host gpu.h shim.)
+add_test(NAME app-mousesettings
+    COMMAND serenade-launcher
+        --res ${SERENITY_SOURCE_DIR}/Base/res
+        --screenshot ${CMAKE_CURRENT_BINARY_DIR}/app-mousesettings.png
+        --delay 5000
+        --log-dir ${CMAKE_CURRENT_BINARY_DIR}
+        --service /tmp/session/0/portal/config=$<TARGET_FILE:ConfigServer>
+        --service /tmp/session/0/portal/clipboard=$<TARGET_FILE:Clipboard>
+        --service /tmp/session/0/portal/launch=$<TARGET_FILE:LaunchServer>
+        --expect-window 0.05
+        $<TARGET_FILE:WindowServer>
+        $<TARGET_FILE:MouseSettings>)
+set_tests_properties(app-mousesettings PROPERTIES TIMEOUT 90)
+
+# Screenshot captures the screen on launch and shows it in its window; the
+# captured content includes whatever is on screen, so a functional check.
+add_test(NAME app-screenshot
+    COMMAND serenade-launcher
+        --res ${SERENITY_SOURCE_DIR}/Base/res
+        --screenshot ${CMAKE_CURRENT_BINARY_DIR}/app-screenshot.png
+        --delay 5000
+        --log-dir ${CMAKE_CURRENT_BINARY_DIR}
+        --service /tmp/session/0/portal/config=$<TARGET_FILE:ConfigServer>
+        --service /tmp/session/0/portal/clipboard=$<TARGET_FILE:Clipboard>
+        --service /tmp/session/0/portal/launch=$<TARGET_FILE:LaunchServer>
+        --expect-window 0.05
+        $<TARGET_FILE:WindowServer>
+        $<TARGET_FILE:Screenshot>)
+set_tests_properties(app-screenshot PROPERTIES TIMEOUT 90)
+
+# TerminalSettings renders its settings panels with defaults; functional check.
+add_test(NAME app-terminalsettings
+    COMMAND serenade-launcher
+        --res ${SERENITY_SOURCE_DIR}/Base/res
+        --screenshot ${CMAKE_CURRENT_BINARY_DIR}/app-terminalsettings.png
+        --delay 5000
+        --log-dir ${CMAKE_CURRENT_BINARY_DIR}
+        --service /tmp/session/0/portal/config=$<TARGET_FILE:ConfigServer>
+        --service /tmp/session/0/portal/clipboard=$<TARGET_FILE:Clipboard>
+        --service /tmp/session/0/portal/launch=$<TARGET_FILE:LaunchServer>
+        --expect-window 0.05
+        $<TARGET_FILE:WindowServer>
+        $<TARGET_FILE:TerminalSettings>)
+set_tests_properties(app-terminalsettings PROPERTIES TIMEOUT 90)
+

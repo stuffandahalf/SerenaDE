@@ -484,6 +484,11 @@ void write_window_server_config(const char* log_dir, int width, int height, int 
         "Width=%d\n"
         "Height=%d\n"
         "ScaleFactor=%d\n"
+        // [Theme] must be present: WindowServer::get_system_theme() returns the
+        // raw config entry (no default), and apps like DisplaySettings match it
+        // against /res/themes by name -- an empty name matches nothing.
+        "[Theme]\n"
+        "Name=Default\n"
         "[Mouse]\n"
         "CursorTheme=%s\n",
         mode, width, height, scale, cursor_theme);

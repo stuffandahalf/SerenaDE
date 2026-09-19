@@ -390,7 +390,32 @@ host TLS reads `$HOME/.config/certs.pem`, which the test seeds best-effort); (4)
 0054; `app-mail-render` — WebContent is required as a broker for its embedded web view). All four plan items
 have landed, and the previously deferred TextEditor followed (patches 0055–0056; `app-texteditor-open` opens
 a real file through the portal — LibMarkdown/LibGemini/LibSyntax were already in Lagom after all; only
-LibCMake was missing, plus un-gating LibShell's SyntaxHighlighter). Full serial ctest 267/267.
+LibCMake was missing, plus un-gating LibShell's SyntaxHighlighter).
+
+**Second batch (2026-09-18, patches 0057–0067).** The remaining host-viable apps are now built: 21 more
+(Calendar, CalendarSettings, CertificateSettings, CharacterMap, DisplaySettings, FontEditor, GamesSettings,
+HexEditor, KeyboardMapper, KeyboardSettings, MailSettings, MapsSettings, Magnifier, MouseSettings,
+NetworkSettings, Run, Screenshot, SpaceAnalyzer, TerminalSettings, ThemeEditor, VideoPlayer) plus the
+Profiler dev tool, and five new standard libraries (LibCards, LibChess, LibDebug, LibEDID,
+LibSymbolication). Per-app portability: LibDebug's register ABI / live DebugSession gated to Serenity
+(0058); LibEDID pointed at the WindowServer gpu.h shim + LibCards `<float.h>` (0059); GML binary-dir
+include paths for four apps (0060); MouseSettings' same shim include (0061); KeyboardMapper falls back to
+the en-us keymap when there is no kernel keymap (0063); Profiler's live profiling gated, perfcore-file
+loading still works (0066); Run's `PAGE_SIZE` template argument replaced with a fixed size (0067). Three
+cross-cutting fixes: the `$SERENITY_RES` remap now also covers `DirIterator` (POSIX `opendir`) and raw
+`System::openat`, so apps that scan `/res` directories — DisplaySettings' theme list, GamesSettings' card
+sets, Run's app list, **and Settings itself** — actually find their data on host (0062; the stale
+m4-settings golden captured the pre-fix empty grid and was regenerated); a WindowStack null-iterator
+segfault when an always-on-top window is alone in its stack — untriggerable on Serenity (the Taskbar
+keeps stacks non-empty) but hit by Magnifier on host sessions (0065, upstreamable); DisplaySettings'
+uninitialized theme index hardened (0064). **Deferred**: SystemMonitor, NetworkSettings and SpaceAnalyzer
+read only Serenity-kernel data (`/sys/kernel/processes`, `memstat`, `net/*`, `df`) with no host
+equivalent — they would render nothing; Debugger/CrashReporter remain deferred on the register ABI; the
+WebContent-tier apps (Assistant, Help, PDFViewer, Presenter, Spreadsheet, Weather, Welcome) and
+3DFileViewer are still out of scope. 18 new tests: six goldens through a shared `app-golden.sh` driver
+(CharacterMap, Run, GamesSettings, ThemeEditor, VideoPlayer, HexEditor — all verified bit-identical
+across runs) and twelve `--expect-window` checks. Full serial ctest **285/285**; all 67 patches
+re-verified from a pristine pin (patched tree byte-identical to the dev tree).
 
 ## Patch workflow
 
