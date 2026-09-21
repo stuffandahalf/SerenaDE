@@ -27,12 +27,56 @@ Living tracker. Update in the same commit as the work it describes, and keep
 | Maps on host                     | post-M6     | done        | Patch 0053: app list + GML binary-dir include path + `<limits.h>` for INT_MIN in main.cpp. RequestServer must run as a broker service (accepted-socket takeover; a regular `--service` crashes it with EINVAL in recvmsg). `app-maps-render` asserts the window functionally — tiles load over HTTPS when the host has network + CA bundle (the script seeds `$HOME/.config/certs.pem` best-effort), otherwise the map area shows its fallback |
 | Mail on host                     | post-M6     | done        | Patch 0054: app list + GML binary-dir include path (all deps already built; no portability fixes). WebContent must run as a broker service — Mail's out-of-process web view connects at construction and aborts without it. `app-mail-render` asserts the empty inbox UI functionally (`--expect-window 0.25`, measured 0.364); full serial ctest 266/266 |
 | TextEditor on host               | post-M6     | done        | Patches 0055–0056: LibCMake joins the standard Lagom libraries (the only lib actually missing — LibMarkdown/LibGemini/LibSyntax were already there) and LibShell's SyntaxHighlighter.cpp is un-gated from SerenityOS (TextEditor references its vtable; the gate's LibCodeComprehension link was legacy — nothing in LibShell references it). `app-texteditor-open` opens a fixed document through the FileSystemAccess portal and golden-compares the render; full serial ctest 267/267 |
-| Remaining host-viable apps       | post-M6     | done        | Patches 0057–0067: 21 more apps (Calendar, CalendarSettings, CertificateSettings, CharacterMap, DisplaySettings, FontEditor, GamesSettings, HexEditor, KeyboardMapper, KeyboardSettings, MailSettings, MapsSettings, Magnifier, MouseSettings, NetworkSettings, Run, Screenshot, SpaceAnalyzer, TerminalSettings, ThemeEditor, VideoPlayer) + the Profiler dev tool, and LibCards/LibChess/LibDebug/LibEDID/LibSymbolication join the standard libraries. Portability: LibDebug register-ABI/live-DebugSession gated to Serenity (0058); LibEDID gpu.h shim include + LibCards `<float.h>` (0059); GML binary-dir includes for four apps (0060); MouseSettings' same shim include (0061); the `$SERENITY_RES` remap extended to `DirIterator`/raw `openat` so `/res` directory scans work on host (0062 — this also fixed Settings, whose stale golden captured an empty grid and was regenerated); KeyboardMapper en-us keymap fallback (0063); DisplaySettings theme-index hardening (0064); WindowStack null-iterator segfault for a lone always-on-top window (0065, upstreamable); Profiler live-profiling gated (0066); Run `PAGE_SIZE` template fix (0067). Deferred: SystemMonitor/NetworkSettings/SpaceAnalyzer (Serenity-kernel `/sys/kernel/*` data only), Debugger/CrashReporter (register ABI), WebContent-tier apps, 3DFileViewer. 18 new tests (6 goldens via shared `app-golden.sh`, 12 `--expect-window`); full serial ctest **285/285** |
+| Remaining host-viable apps       | post-M6     | done        | Patches 0057–0067: 21 more apps (Calendar, CalendarSettings, CertificateSettings, CharacterMap, DisplaySettings, FontEditor, GamesSettings, HexEditor, KeyboardMapper, KeyboardSettings, MailSettings, MapsSettings, Magnifier, MouseSettings, NetworkSettings, Run, Screenshot, SpaceAnalyzer, TerminalSettings, ThemeEditor, VideoPlayer) + the Profiler dev tool, and LibCards/LibChess/LibDebug/LibEDID/LibSymbolication join the standard libraries. Portability: LibDebug register-ABI/live-DebugSession gated to Serenity (0058); LibEDID gpu.h shim include + LibCards `<float.h>` (0059); GML binary-dir includes for four apps (0060); MouseSettings' same shim include (0061); the `$SERENITY_RES` remap extended to `DirIterator`/raw `openat` so `/res` directory scans work on host (0062 — this also fixed Settings, whose stale golden captured an empty grid and was regenerated); KeyboardMapper en-us keymap fallback (0063); DisplaySettings theme-index hardening (0064); WindowStack null-iterator segfault for a lone always-on-top window (0065, upstreamable); Profiler live-profiling gated (0066); Run `PAGE_SIZE` template fix (0067). Deferred to M7: SystemMonitor/NetworkSettings/SpaceAnalyzer (Serenity-kernel `/sys/kernel/*` data only — host data shim) and Debugger/CrashReporter (register ABI project); still out of scope: WebContent-tier apps, 3DFileViewer. 18 new tests (6 goldens via shared `app-golden.sh`, 12 `--expect-window`); full serial ctest **285/285** |
 
 ## Porting log
 
 Record discoveries here as they happen (surprising `#ifdef` gaps, API quirks,
  decisions with trade-offs). Newest first.
+
+  - 2026-09-21 — **ConfigServer: don't crash when a domain's config can't be opened (patch 0068); two IPC landmines defused along the way.**
+    Fixed the latent crash logged during M6 debugging ("Side note, not fixed…"): `ensure_domain_config()`
+    called `release_value_but_fixme_should_propagate_errors()` on `ConfigFile::open_for_app()`, so any
+    failure to open (or create) a domain's config file — e.g. an uncreatable `$XDG_CONFIG_HOME` — crashed
+    the whole server and took down every config client in the session. The error is now propagated: reads
+    and listings degrade to empty values, writes/mutations no-op, disk sync skips + logs the domain, and
+    the FileWatcher re-open gives up on a failed open until the next change event. Upstreamable (pure
+    error propagation, no host-specific code).
+
+    Building the regression test (`app-configserver-robustness`) surfaced two IPC landmines:
+
+    - **A `nullptr` Optional response is not "send null" in Serenity IPC.** The generated server dispatch
+      treats an invalid Optional as a fatal error ("Failed to handle … message"), logs it, and sends *no*
+      response — the client's synchronous call then blocks forever. The pre-existing access-denied
+      `return nullptr` paths are only safe because `did_misbehave()` has already disconnected the client.
+      The correct degraded shape is an **empty Optional** (the permissive-mode form), which encodes as a
+      valid "no value" response.
+    - **Synchronous IPC needs a live `Core::EventLoop` even if it never runs.** `drain_messages_from_peer()`
+      unconditionally schedules `handle_messages()` through the deferred invoker, whose default is
+      `Core::deferred_invoke` → `EventLoop::current()` → VERIFY failure ("No EventLoop is present") without
+      one. The new `config-client-test` fixture (TestApps) constructs a loop before its first call; the sync
+      wait itself only polls `m_unprocessed_messages`, so the loop never needs to exec.
+
+    Test design: poison `XDG_CONFIG_HOME` with a path *under a regular file* — mkdir -p fails with ENOTDIR
+    at the final component (an EEXIST on an intermediate level is treated as success by
+    `Directory::ensure_directory`, so the parent must be non-directory). Run the session with the minimal
+    client as the app; assert its read/write round-trip degrades to fallback values (`CONFIG_ROBUSTNESS_OK`
+    in the app log — stderr only, since `spawn_plain` dup2s just STDERR into the app log) AND that a second
+    client run still connects and answers. The second run is watchdoged (10 s): pre-fix the server dies on
+    the     first domain open, and a sync call to a dead or wedged server hangs forever rather than erroring.
+    Verified failing pre-fix / passing post-fix; full serial ctest **286/286**; all 68 patches re-verified
+    from a pristine pin (patched tree byte-identical to the dev tree).
+
+  - 2026-09-19 — **Milestones redefined: M7 = remaining hard-dependency apps; BSD matrix moves to M8.**
+    The pre-M7 candidate list had five items (upstream clean PRs, the latent ConfigServer crash fix, the
+    WebContent-tier app batch, the register-ABI project for Debugger/CrashReporter, and a host
+    `/sys/kernel` data shim for SystemMonitor/NetworkSettings/SpaceAnalyzer). Decision: the register-ABI
+    project (portable per-arch `PtraceRegisters` + a Linux ptrace backend in `DebugSession`) and the
+    `/sys/kernel` shim (generated host equivalents from `/proc` + `statvfs` served under a per-session
+    directory) become **M7**, with exit criteria of a working Debugger/CrashReporter and the three
+    system-data apps rendering real host data. Full BSD support (FreeBSD/NetBSD/OpenBSD) moves to a new
+    **M8**. The remaining pre-M7 items — upstreaming the clean PR candidates, the ConfigServer crash fix,
+    and the WebContent-tier batch — proceed first.
 
   - 2026-09-18 — **Second app batch on host (patches 0057–0067): 21 apps + Profiler + 5 libraries.**
     Wired the remaining host-viable applications into the Lagom build and fixed what broke. Notable discoveries:

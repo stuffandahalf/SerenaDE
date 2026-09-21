@@ -36,6 +36,21 @@ foreach(clip_app IN ITEMS clip-copy clip-paste)
     target_link_libraries(${clip_app} PRIVATE AK LibCore LibGfx LibGUI LibMain)
 endforeach()
 
+# config-client-test: minimal non-GUI ConfigServer client for the
+# app-configserver-robustness test (see tests/scripts/configserver-robustness.sh).
+# Synchronous IPC calls need no event loop, so it is a plain main().
+add_executable(config-client-test config_client_test.cpp)
+target_include_directories(config-client-test PRIVATE
+    ${SERENITY_SOURCE_DIR}
+    ${SERENITY_SOURCE_DIR}/Userland
+    ${SERENITY_SOURCE_DIR}/Userland/Libraries
+    ${CMAKE_BINARY_DIR}
+    ${CMAKE_BINARY_DIR}/lagom
+    ${CMAKE_BINARY_DIR}/lagom/Userland/Libraries
+    ${CMAKE_BINARY_DIR}/lagom/Userland/Services
+)
+target_link_libraries(config-client-test PRIVATE AK LibCore LibConfig)
+
 # launch-terminal: asks LaunchServer to open an executable (the desktop's "open app"
 # path). No GUI of its own -- it links LibDesktop/LibURL instead of LibGUI.
 add_executable(launch-terminal launch_terminal.cpp)

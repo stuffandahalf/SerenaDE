@@ -711,3 +711,23 @@ add_test(NAME app-terminalsettings
         $<TARGET_FILE:TerminalSettings>)
 set_tests_properties(app-terminalsettings PROPERTIES TIMEOUT 90)
 
+# --- Service robustness ------------------------------------------------------
+# ConfigServer must survive an uncreatable config directory. The driver poisons
+# XDG_CONFIG_HOME (a path under a regular file, so Directory::create fails with
+# ENOTDIR and open_for_app errors for every domain), runs the session with a
+# minimal non-GUI config client as the app, and asserts that the client's
+# read/write round-trip degrades to fallback values AND that a second client
+# run afterwards can still connect -- i.e. the server did not crash in
+# ensure_domain_config (pre-fix it hit release_value_but_fixme_should_
+# propagate_errors on the first domain open, killing every config client).
+add_test(NAME app-configserver-robustness
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/configserver-robustness.sh
+        $<TARGET_FILE:serenade-launcher>
+        ${SERENITY_SOURCE_DIR}/Base/res
+        ${CMAKE_CURRENT_BINARY_DIR}/app-configserver.png
+        ${CMAKE_CURRENT_BINARY_DIR}
+        $<TARGET_FILE:WindowServer>
+        $<TARGET_FILE:ConfigServer>
+        $<TARGET_FILE:config-client-test>)
+set_tests_properties(app-configserver-robustness PROPERTIES TIMEOUT 120)
+

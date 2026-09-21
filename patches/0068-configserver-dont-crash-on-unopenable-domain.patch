@@ -1,0 +1,235 @@
+From 9a338ab0521d80f89a74720ed46bbe5f699c38e8 Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory@serenade.local>
+Date: Mon, 21 Sep 2026 01:45:17 -0400
+Subject: [PATCH] ConfigServer: Don't crash when a domain's config file cannot
+ be opened
+
+ensure_domain_config() used release_value_but_fixme_should_propagate_errors()
+on ConfigFile::open_for_app(), so any failure to open (or create) the config
+file for a domain -- e.g. an uncreatable $XDG_CONFIG_HOME -- crashed the
+entire server, taking down every config client in the session.
+
+Propagate the error instead: reads and listings degrade to empty values (the
+same shape as the permissive-mode responses), writes and mutations become
+no-ops, disk sync skips and logs the domain, and the file watcher's re-open
+gives up on a failed open until the next change event.
+---
+ .../ConfigServer/ConnectionFromClient.cpp     | 87 +++++++++++++++----
+ 1 file changed, 68 insertions(+), 19 deletions(-)
+
+diff --git a/Userland/Services/ConfigServer/ConnectionFromClient.cpp b/Userland/Services/ConfigServer/ConnectionFromClient.cpp
+index b41ffdcc25..f8f4fd6fc8 100644
+--- a/Userland/Services/ConfigServer/ConnectionFromClient.cpp
++++ b/Userland/Services/ConfigServer/ConnectionFromClient.cpp
+@@ -31,20 +31,25 @@ static void for_each_monitoring_connection(ByteString const& domain, ConnectionF
+     }
+ }
+ 
+-static Core::ConfigFile& ensure_domain_config(ByteString const& domain)
++static ErrorOr<NonnullRefPtr<Core::ConfigFile>> ensure_domain_config(ByteString const& domain)
+ {
+     auto it = s_cache.find(domain);
+     if (it != s_cache.end())
+-        return *it->value->config;
++        return it->value->config;
+ 
+-    auto config = Core::ConfigFile::open_for_app(domain, Core::ConfigFile::AllowWriting::Yes).release_value_but_fixme_should_propagate_errors();
++    auto config = TRY(Core::ConfigFile::open_for_app(domain, Core::ConfigFile::AllowWriting::Yes));
+     // FIXME: Use a single FileWatcher with multiple watches inside.
+     auto watcher_or_error = Core::FileWatcher::create(Core::FileWatcherFlags::Nonblock);
+     VERIFY(!watcher_or_error.is_error());
+     auto result = watcher_or_error.value()->add_watch(config->filename(), Core::FileWatcherEvent::Type::ContentModified);
+     VERIFY(!result.is_error());
+     watcher_or_error.value()->on_change = [config, domain](auto&) {
+-        auto new_config = Core::ConfigFile::open(config->filename(), Core::ConfigFile::AllowWriting::Yes).release_value_but_fixme_should_propagate_errors();
++        auto new_config_or_error = Core::ConfigFile::open(config->filename(), Core::ConfigFile::AllowWriting::Yes);
++        if (new_config_or_error.is_error()) {
++            dbgln("Failed to re-open config file '{}': {}", config->filename(), new_config_or_error.error());
++            return;
++        }
++        auto new_config = new_config_or_error.release_value();
+         for (auto& group : config->groups()) {
+             for (auto& key : config->keys(group)) {
+                 if (!new_config->has_key(group, key)) {
+@@ -71,7 +76,7 @@ static Core::ConfigFile& ensure_domain_config(ByteString const& domain)
+     };
+     auto cache_entry = make<CachedDomain>(domain, config, watcher_or_error.release_value());
+     s_cache.set(domain, move(cache_entry));
+-    return *config;
++    return config;
+ }
+ 
+ ConnectionFromClient::ConnectionFromClient(NonnullOwnPtr<Core::LocalSocket> client_socket, int client_id)
+@@ -137,7 +142,12 @@ void ConnectionFromClient::sync_dirty_domains_to_disk()
+     auto dirty_domains = move(m_dirty_domains);
+     dbgln("Syncing {} dirty domains to disk", dirty_domains.size());
+     for (auto domain : dirty_domains) {
+-        auto& config = ensure_domain_config(domain);
++        auto maybe_config = ensure_domain_config(domain);
++        if (maybe_config.is_error()) {
++            dbgln("Failed to open config for domain '{}': {}", domain, maybe_config.error());
++            continue;
++        }
++        auto& config = *maybe_config.value();
+         if (auto result = config.sync(); result.is_error()) {
+             dbgln("Failed to write config '{}' to disk: {}", domain, result.error());
+             // Put it back in the list since it's still dirty.
+@@ -150,7 +160,10 @@ Messages::ConfigServer::ListConfigKeysResponse ConnectionFromClient::list_config
+ {
+     if (!validate_access(domain, group, ""))
+         return Vector<ByteString> {};
+-    auto& config = ensure_domain_config(domain);
++    auto maybe_config = ensure_domain_config(domain);
++    if (maybe_config.is_error())
++        return Vector<ByteString> {};
++    auto& config = *maybe_config.value();
+     return { config.keys(group) };
+ }
+ 
+@@ -158,7 +171,10 @@ Messages::ConfigServer::ListConfigGroupsResponse ConnectionFromClient::list_conf
+ {
+     if (!validate_access(domain, "", ""))
+         return Vector<ByteString> {};
+-    auto& config = ensure_domain_config(domain);
++    auto maybe_config = ensure_domain_config(domain);
++    if (maybe_config.is_error())
++        return Vector<ByteString> {};
++    auto& config = *maybe_config.value();
+     return { config.groups() };
+ }
+ 
+@@ -170,7 +186,10 @@ Messages::ConfigServer::ReadStringValueResponse ConnectionFromClient::read_strin
+         return nullptr;
+     }
+ 
+-    auto& config = ensure_domain_config(domain);
++    auto maybe_config = ensure_domain_config(domain);
++    if (maybe_config.is_error())
++        return Optional<ByteString> {};
++    auto& config = *maybe_config.value();
+     if (!config.has_key(group, key))
+         return Optional<ByteString> {};
+     return Optional<ByteString> { config.read_entry(group, key) };
+@@ -184,7 +203,10 @@ Messages::ConfigServer::ReadI32ValueResponse ConnectionFromClient::read_i32_valu
+         return nullptr;
+     }
+ 
+-    auto& config = ensure_domain_config(domain);
++    auto maybe_config = ensure_domain_config(domain);
++    if (maybe_config.is_error())
++        return Optional<i32> {};
++    auto& config = *maybe_config.value();
+     if (!config.has_key(group, key))
+         return Optional<i32> {};
+     return Optional<i32> { config.read_num_entry(group, key) };
+@@ -198,7 +220,10 @@ Messages::ConfigServer::ReadU32ValueResponse ConnectionFromClient::read_u32_valu
+         return nullptr;
+     }
+ 
+-    auto& config = ensure_domain_config(domain);
++    auto maybe_config = ensure_domain_config(domain);
++    if (maybe_config.is_error())
++        return Optional<u32> {};
++    auto& config = *maybe_config.value();
+     if (!config.has_key(group, key))
+         return Optional<u32> {};
+     return Optional<u32> { config.read_num_entry<u32>(group, key) };
+@@ -212,7 +237,10 @@ Messages::ConfigServer::ReadBoolValueResponse ConnectionFromClient::read_bool_va
+         return nullptr;
+     }
+ 
+-    auto& config = ensure_domain_config(domain);
++    auto maybe_config = ensure_domain_config(domain);
++    if (maybe_config.is_error())
++        return Optional<bool> {};
++    auto& config = *maybe_config.value();
+     if (!config.has_key(group, key))
+         return Optional<bool> {};
+     return Optional<bool> { config.read_bool_entry(group, key) };
+@@ -231,7 +259,10 @@ void ConnectionFromClient::write_string_value(ByteString const& domain, ByteStri
+     if (!validate_access(domain, group, key))
+         return;
+ 
+-    auto& config = ensure_domain_config(domain);
++    auto maybe_config = ensure_domain_config(domain);
++    if (maybe_config.is_error())
++        return;
++    auto& config = *maybe_config.value();
+ 
+     if (config.has_key(group, key) && config.read_entry(group, key) == value)
+         return;
+@@ -250,7 +281,10 @@ void ConnectionFromClient::write_i32_value(ByteString const& domain, ByteString
+     if (!validate_access(domain, group, key))
+         return;
+ 
+-    auto& config = ensure_domain_config(domain);
++    auto maybe_config = ensure_domain_config(domain);
++    if (maybe_config.is_error())
++        return;
++    auto& config = *maybe_config.value();
+ 
+     if (config.has_key(group, key) && config.read_num_entry(group, key) == value)
+         return;
+@@ -269,7 +303,10 @@ void ConnectionFromClient::write_u32_value(ByteString const& domain, ByteString
+     if (!validate_access(domain, group, key))
+         return;
+ 
+-    auto& config = ensure_domain_config(domain);
++    auto maybe_config = ensure_domain_config(domain);
++    if (maybe_config.is_error())
++        return;
++    auto& config = *maybe_config.value();
+ 
+     if (config.has_key(group, key) && config.read_num_entry<u32>(group, key) == value)
+         return;
+@@ -288,7 +325,10 @@ void ConnectionFromClient::write_bool_value(ByteString const& domain, ByteString
+     if (!validate_access(domain, group, key))
+         return;
+ 
+-    auto& config = ensure_domain_config(domain);
++    auto maybe_config = ensure_domain_config(domain);
++    if (maybe_config.is_error())
++        return;
++    auto& config = *maybe_config.value();
+ 
+     if (config.has_key(group, key) && config.read_bool_entry(group, key) == value)
+         return;
+@@ -307,7 +347,10 @@ void ConnectionFromClient::remove_key_entry(ByteString const& domain, ByteString
+     if (!validate_access(domain, group, key))
+         return;
+ 
+-    auto& config = ensure_domain_config(domain);
++    auto maybe_config = ensure_domain_config(domain);
++    if (maybe_config.is_error())
++        return;
++    auto& config = *maybe_config.value();
+     if (!config.has_key(group, key))
+         return;
+ 
+@@ -325,7 +368,10 @@ void ConnectionFromClient::remove_group_entry(ByteString const& domain, ByteStri
+     if (!validate_access(domain, group, {}))
+         return;
+ 
+-    auto& config = ensure_domain_config(domain);
++    auto maybe_config = ensure_domain_config(domain);
++    if (maybe_config.is_error())
++        return;
++    auto& config = *maybe_config.value();
+     if (!config.has_group(group))
+         return;
+ 
+@@ -343,7 +389,10 @@ void ConnectionFromClient::add_group_entry(ByteString const& domain, ByteString
+     if (!validate_access(domain, group, {}))
+         return;
+ 
+-    auto& config = ensure_domain_config(domain);
++    auto maybe_config = ensure_domain_config(domain);
++    if (maybe_config.is_error())
++        return;
++    auto& config = *maybe_config.value();
+     if (config.has_group(group))
+         return;
+ 
+-- 
+2.55.0
+

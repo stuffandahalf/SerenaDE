@@ -69,7 +69,7 @@ SerenaDE/
 │   └── golden/                # Reference PNGs
 ├── docs/
 │   └── PORTING.md             # Component status tracker + porting log
-└── .github/workflows/ci.yml   # Linux build+test; the FreeBSD VM job returns as M7's first task
+└── .github/workflows/ci.yml   # Linux build+test; the FreeBSD VM job returns as M8's first task
 ```
 
 Serenity-side reference points (in the pinned Serenity tree):
@@ -208,7 +208,7 @@ the real filesystem in FileManager. All M2 golden tests still pass.
 
 **Exit:** the M4 app subset builds, links and boots WindowServer on FreeBSD;
 polish items done; Linux CI green. (Full-suite green on FreeBSD plus NetBSD
-and OpenBSD support moved to M7.)
+and OpenBSD support moved to M8.)
 
 ### M6 — Heavy apps
 
@@ -218,7 +218,29 @@ and OpenBSD support moved to M7.)
 
 **Exit:** Browser loads web pages; audio plays in at least one game.
 
-### M7 — Full BSD support (FreeBSD, NetBSD, OpenBSD)
+### M7 — Remaining hard-dependency apps
+
+The second batch deferred three clusters that need real porting work rather
+than small fixes. Two subtasks:
+
+- **Register ABI project (→ Debugger + CrashReporter):** Serenity's
+  `PtraceRegisters` layout (`LibC/sys/arch/<arch>/regs.h`) is kernel-dependent,
+  and the kernel's `Arch/<arch>/mcontext.h` redefines host types, so it cannot
+  be included on a host. Define a portable per-arch `PtraceRegisters` (matching
+  Serenity's member layout) in a shared header, then add a Linux ptrace backend
+  to `DebugSession` reading/writing those registers via
+  `PTRACE_GETREGS`/`SETREGS`.
+- **Host `/sys/kernel` data shim (→ SystemMonitor, NetworkSettings,
+  SpaceAnalyzer):** these apps read only Serenity-kernel files
+  (`/sys/kernel/processes`, `memstat`, `net/*`, `df`). Extend the existing
+  remap machinery to serve generated host equivalents (from `/proc` +
+  `statvfs`) under a per-session directory.
+
+**Exit:** Debugger attaches to and inspects a live process; CrashReporter
+renders a crash report for a fixture crash; SystemMonitor, NetworkSettings and
+SpaceAnalyzer render real host data — each with tests. Full serial ctest green.
+
+### M8 — Full BSD support (FreeBSD, NetBSD, OpenBSD)
 
 M5 closed with FreeBSD at "builds, links, boots; full suite unverified" and
 the other BSDs untouched. One subtask per OS, each following the same shape:
@@ -307,7 +329,7 @@ third `ScreenBackend`, no compositor changes). All Xlib stays in SerenaDE's
        All five M4 apps (Terminal, FileManager, Settings, ImageViewer, PixelPaint) now build and render.
        Full serial ctest is **250/250**. See `docs/PORTING.md`.
 
-**M5 — complete (2026-09-16; BSD matrix moved to M7).** FreeBSD support + polish. A portability audit of the shim
+**M5 — complete (2026-09-16; BSD matrix moved to M8).** FreeBSD support + polish. A portability audit of the shim
 (`src/`) found it already BSD-clean (only X11/XShm, both portable; no evdev/epoll//proc). Patches 0026–0035
 then cleared every compile/link blocker on a real FreeBSD VM: glibc-only `posix_spawn` features gated to
 Serenity/glibc with portable fallbacks (0026 Process, 0027 FileManager), LLD auto-selection skipped (0028),
@@ -327,8 +349,8 @@ output to a `ci-diagnostics` branch on failure for diagnosis. The polish items a
 `--scale` (26bd2a9, verified 2x physical-pixel ratio) and `--cursor-theme` (9ac0cec, verified render +
 selection); font coverage and WM focus/raise were verified working against the existing golden tests.
 The remaining M5 item — full-suite green in the FreeBSD VM — plus NetBSD and
-OpenBSD support are now M7's subtasks (the FreeBSD CI job, removed in 7ebcda8
-while Linux was the focus, comes back as M7's first task).
+OpenBSD support are now M8's subtasks (the FreeBSD CI job, removed in 7ebcda8
+while Linux was the focus, comes back as M8's first task).
 
 **M6 — complete (2026-09-16).** Heavy apps. Both exit criteria met: audio plays in
 Piano, and Browser loads web pages (`m6-browser-load`). First, an architecture finding that shrank the scope:
@@ -416,6 +438,23 @@ WebContent-tier apps (Assistant, Help, PDFViewer, Presenter, Spreadsheet, Weathe
 (CharacterMap, Run, GamesSettings, ThemeEditor, VideoPlayer, HexEditor — all verified bit-identical
 across runs) and twelve `--expect-window` checks. Full serial ctest **285/285**; all 67 patches
 re-verified from a pristine pin (patched tree byte-identical to the dev tree).
+
+**ConfigServer robustness (2026-09-21, patch 0068).** Fixed the latent crash noted during M6
+debugging: `ensure_domain_config()` called `release_value_but_fixme_should_propagate_errors()` on
+`ConfigFile::open_for_app()`, so any failure to open (or create) a domain's config file — e.g. an
+uncreatable `$XDG_CONFIG_HOME` — crashed the whole server, taking every config client in the session
+down with it. The error now propagates: reads and listings degrade to empty values (the permissive-mode
+shape — note a `nullptr` Optional response is *not* "send null" in Serenity IPC: the generated dispatch
+treats it as a fatal error and sends no response, hanging the client's sync call forever), writes and
+mutations no-op, disk sync skips and logs the domain, and the FileWatcher re-open gives up on a failed
+open until the next change event. Upstreamable (pure error propagation). New test
+`app-configserver-robustness`: poisons `XDG_CONFIG_HOME` with a path under a regular file (mkdir -p dies
+with ENOTDIR), runs the session with a minimal non-GUI config client as the app (new `config-client-test`
+TestApps fixture — synchronous IPC needs a live `Core::EventLoop` even if it never runs, since
+`drain_messages_from_peer` schedules through `Core::deferred_invoke`), and asserts the round-trip degrades
+to fallback values AND that a second client still connects (watchdoged: pre-fix the server dies on the
+first domain open). Verified failing pre-fix / passing post-fix. Full serial ctest **286/286**; all 68
+patches re-verified from a pristine pin (patched tree byte-identical to the dev tree).
 
 ## Patch workflow
 
