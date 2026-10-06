@@ -711,6 +711,141 @@ add_test(NAME app-terminalsettings
         $<TARGET_FILE:TerminalSettings>)
 set_tests_properties(app-terminalsettings PROPERTIES TIMEOUT 90)
 
+# --- Third Lagom batch (WebContent tier) -------------------------------------
+# The seven remaining host-viable apps, added to the Lagom app list by patch
+# 0069 (plus per-app portability fixes in 0070–0072). Every one of their link
+# dependencies already builds: LibWebView/LibWeb/LibJS with the browser stack,
+# LibPDF/LibManual/LibProtocol as standard Lagom libraries. The drivers seed a
+# fresh per-run home and pin the XDG dirs (StandardPaths prefers them over
+# $HOME), so config lookups are deterministic and never touch the CI image's
+# real config directory.
+
+# Assistant is a search-launcher popup; its providers only run when a query is
+# typed, so nothing beyond the window server is exercised at startup. The
+# popup is small relative to the desktop, hence the low fraction threshold.
+add_test(NAME app-assistant-render
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/assistant-render.sh
+        $<TARGET_FILE:serenade-launcher>
+        ${SERENITY_SOURCE_DIR}/Base/res
+        ${CMAKE_CURRENT_BINARY_DIR}/app-assistant.png
+        ${CMAKE_CURRENT_BINARY_DIR}
+        $<TARGET_FILE:WindowServer>
+        $<TARGET_FILE:Assistant>
+        $<TARGET_FILE:ConfigServer>
+        $<TARGET_FILE:Clipboard>
+        $<TARGET_FILE:LaunchServer>)
+set_tests_properties(app-assistant-render PROPERTIES TIMEOUT 120)
+
+# Help shows its search UI with no page argument (/usr/share/man does not
+# exist on host, so the manual index is empty). WebContent runs as a broker:
+# the out-of-process web view connects at construction and aborts if missing.
+add_test(NAME app-help-render
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/help-render.sh
+        $<TARGET_FILE:serenade-launcher>
+        ${SERENITY_SOURCE_DIR}/Base/res
+        ${CMAKE_CURRENT_BINARY_DIR}/app-help.png
+        ${CMAKE_CURRENT_BINARY_DIR}
+        $<TARGET_FILE:WindowServer>
+        $<TARGET_FILE:Help>
+        $<TARGET_FILE:ConfigServer>
+        $<TARGET_FILE:Clipboard>
+        $<TARGET_FILE:LaunchServer>
+        $<TARGET_FILE:WebContent>)
+set_tests_properties(app-help-render PROPERTIES TIMEOUT 120)
+
+# PDFViewer opens a real fixture (Tests/LibPDF/colorspaces.pdf) through
+# FileSystemAccessServer; the driver pixel-probes the document area for the
+# page's dark/saturated content, i.e. it proves portal -> open -> LibPDF
+# render all worked, not just that a window appeared. Skips without python3.
+add_test(NAME app-pdfviewer-open
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/pdfviewer-open.sh
+        $<TARGET_FILE:serenade-launcher>
+        ${SERENITY_SOURCE_DIR}/Base/res
+        ${CMAKE_CURRENT_BINARY_DIR}/app-pdfviewer.png
+        ${CMAKE_CURRENT_BINARY_DIR}
+        $<TARGET_FILE:WindowServer>
+        $<TARGET_FILE:PDFViewer>
+        $<TARGET_FILE:ConfigServer>
+        $<TARGET_FILE:Clipboard>
+        $<TARGET_FILE:LaunchServer>
+        $<TARGET_FILE:FileSystemAccessServer>
+        ${SERENITY_SOURCE_DIR}/Tests/LibPDF/colorspaces.pdf)
+set_tests_properties(app-pdfviewer-open PROPERTIES TIMEOUT 180 SKIP_RETURN_CODE 77)
+
+# Presenter with no .presenter argument shows its empty slide view. Its
+# out-of-process web view connects to WebContent at construction and aborts
+# if the service is missing, so both FileSystemAccessServer (the app's
+# declared dependency) and WebContent run as brokers.
+add_test(NAME app-presenter-render
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/presenter-render.sh
+        $<TARGET_FILE:serenade-launcher>
+        ${SERENITY_SOURCE_DIR}/Base/res
+        ${CMAKE_CURRENT_BINARY_DIR}/app-presenter.png
+        ${CMAKE_CURRENT_BINARY_DIR}
+        $<TARGET_FILE:WindowServer>
+        $<TARGET_FILE:Presenter>
+        $<TARGET_FILE:ConfigServer>
+        $<TARGET_FILE:Clipboard>
+        $<TARGET_FILE:LaunchServer>
+        $<TARGET_FILE:FileSystemAccessServer>
+        $<TARGET_FILE:WebContent>)
+set_tests_properties(app-presenter-render PROPERTIES TIMEOUT 120)
+
+# Spreadsheet with no file argument opens a fresh empty workbook. WebContent
+# is the app's declared service dependency (formula help web view, broker).
+add_test(NAME app-spreadsheet-render
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/spreadsheet-render.sh
+        $<TARGET_FILE:serenade-launcher>
+        ${SERENITY_SOURCE_DIR}/Base/res
+        ${CMAKE_CURRENT_BINARY_DIR}/app-spreadsheet.png
+        ${CMAKE_CURRENT_BINARY_DIR}
+        $<TARGET_FILE:WindowServer>
+        $<TARGET_FILE:Spreadsheet>
+        $<TARGET_FILE:ConfigServer>
+        $<TARGET_FILE:Clipboard>
+        $<TARGET_FILE:LaunchServer>
+        $<TARGET_FILE:WebContent>)
+set_tests_properties(app-spreadsheet-render PROPERTIES TIMEOUT 120)
+
+# Weather renders its search window offline. The driver pre-seeds the
+# OpenWeatherMap API key in the session's Weather config (without it the app
+# shows a password dialog a headless session can never answer); RequestServer
+# runs as a broker because the app's Protocol::RequestClient connects at
+# startup and an unhandled failure there would kill the app. Note: Weather is
+# a Jakt app — Lagom builds it only when the Jakt toolchain exists (run
+# Toolchain/BuildJakt.sh lagom before configuring); otherwise it is an empty
+# stub and this test fails.
+add_test(NAME app-weather-render
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/weather-render.sh
+        $<TARGET_FILE:serenade-launcher>
+        ${SERENITY_SOURCE_DIR}/Base/res
+        ${CMAKE_CURRENT_BINARY_DIR}/app-weather.png
+        ${CMAKE_CURRENT_BINARY_DIR}
+        $<TARGET_FILE:WindowServer>
+        $<TARGET_FILE:Weather>
+        $<TARGET_FILE:ConfigServer>
+        $<TARGET_FILE:Clipboard>
+        $<TARGET_FILE:LaunchServer>
+        $<TARGET_FILE:RequestServer>)
+set_tests_properties(app-weather-render PROPERTIES TIMEOUT 120)
+
+# Welcome renders its banner + tips window. The tips file does not exist on
+# host, so the tip label shows its error text -- the window still renders.
+# WebContent is the app's declared service dependency (news web view).
+add_test(NAME app-welcome-render
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/welcome-render.sh
+        $<TARGET_FILE:serenade-launcher>
+        ${SERENITY_SOURCE_DIR}/Base/res
+        ${CMAKE_CURRENT_BINARY_DIR}/app-welcome.png
+        ${CMAKE_CURRENT_BINARY_DIR}
+        $<TARGET_FILE:WindowServer>
+        $<TARGET_FILE:Welcome>
+        $<TARGET_FILE:ConfigServer>
+        $<TARGET_FILE:Clipboard>
+        $<TARGET_FILE:LaunchServer>
+        $<TARGET_FILE:WebContent>)
+set_tests_properties(app-welcome-render PROPERTIES TIMEOUT 120)
+
 # --- Service robustness ------------------------------------------------------
 # ConfigServer must survive an uncreatable config directory. The driver poisons
 # XDG_CONFIG_HOME (a path under a regular file, so Directory::create fails with

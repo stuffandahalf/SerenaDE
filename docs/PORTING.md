@@ -28,11 +28,64 @@ Living tracker. Update in the same commit as the work it describes, and keep
 | Mail on host                     | post-M6     | done        | Patch 0054: app list + GML binary-dir include path (all deps already built; no portability fixes). WebContent must run as a broker service — Mail's out-of-process web view connects at construction and aborts without it. `app-mail-render` asserts the empty inbox UI functionally (`--expect-window 0.25`, measured 0.364); full serial ctest 266/266 |
 | TextEditor on host               | post-M6     | done        | Patches 0055–0056: LibCMake joins the standard Lagom libraries (the only lib actually missing — LibMarkdown/LibGemini/LibSyntax were already there) and LibShell's SyntaxHighlighter.cpp is un-gated from SerenityOS (TextEditor references its vtable; the gate's LibCodeComprehension link was legacy — nothing in LibShell references it). `app-texteditor-open` opens a fixed document through the FileSystemAccess portal and golden-compares the render; full serial ctest 267/267 |
 | Remaining host-viable apps       | post-M6     | done        | Patches 0057–0067: 21 more apps (Calendar, CalendarSettings, CertificateSettings, CharacterMap, DisplaySettings, FontEditor, GamesSettings, HexEditor, KeyboardMapper, KeyboardSettings, MailSettings, MapsSettings, Magnifier, MouseSettings, NetworkSettings, Run, Screenshot, SpaceAnalyzer, TerminalSettings, ThemeEditor, VideoPlayer) + the Profiler dev tool, and LibCards/LibChess/LibDebug/LibEDID/LibSymbolication join the standard libraries. Portability: LibDebug register-ABI/live-DebugSession gated to Serenity (0058); LibEDID gpu.h shim include + LibCards `<float.h>` (0059); GML binary-dir includes for four apps (0060); MouseSettings' same shim include (0061); the `$SERENITY_RES` remap extended to `DirIterator`/raw `openat` so `/res` directory scans work on host (0062 — this also fixed Settings, whose stale golden captured an empty grid and was regenerated); KeyboardMapper en-us keymap fallback (0063); DisplaySettings theme-index hardening (0064); WindowStack null-iterator segfault for a lone always-on-top window (0065, upstreamable); Profiler live-profiling gated (0066); Run `PAGE_SIZE` template fix (0067). Deferred to M7: SystemMonitor/NetworkSettings/SpaceAnalyzer (Serenity-kernel `/sys/kernel/*` data only — host data shim) and Debugger/CrashReporter (register ABI project); still out of scope: WebContent-tier apps, 3DFileViewer. 18 new tests (6 goldens via shared `app-golden.sh`, 12 `--expect-window`); full serial ctest **285/285** |
+| WebContent-tier apps (Assistant, Help, PDFViewer, Presenter, Spreadsheet, Weather, Welcome) | post-M6     | done        | Patches 0069–0072: app-list additions + per-app portability fixes (Presenter `<errno.h>`/`Error::from_errno`, Spreadsheet GML binary-dir include path, Welcome fixed tips buffer). Weather needs the Jakt toolchain (`Toolchain/BuildJakt.sh lagom` before configure) — without it Lagom silently builds a stub. Seven driver tests: six functional `--expect-window` checks + `app-pdfviewer-open`, which pixel-probes `Tests/LibPDF/colorspaces.pdf` opened through FileSystemAccessServer; full serial ctest **293/293** |
 
 ## Porting log
 
 Record discoveries here as they happen (surprising `#ifdef` gaps, API quirks,
  decisions with trade-offs). Newest first.
+
+  - 2026-10-06 — **Third Lagom batch: the WebContent-tier apps (patches 0069–0072).**
+    Assistant, Help, PDFViewer, Presenter, Spreadsheet, Weather and Welcome now build and
+    render in host sessions. Audit first: every one of them links only libraries that already
+    build in the Lagom tree (LibWebView, LibWeb, LibJS, LibPDF, LibManual, LibProtocol,
+    LibMarkdown, LibSyntax), so patch 0069 is just adding them to the app list. Three apps
+    needed per-app portability fixes: Presenter returned `ENOENT` directly from an
+    `ErrorOr`-returning function — fine on Serenity, where `<errno_codes.h>` makes it an
+    `ErrnoCode` enumerator with a matching `ErrorOr(ErrnoCode)` constructor, but glibc's
+    `ENOENT` is a plain int and the implicit conversion doesn't exist (0070 switches to the
+    public `<errno.h>` + `Error::from_errno(ENOENT)`, which works everywhere); Spreadsheet
+    needed the GML binary-dir include path like PixelPaint/Piano/Browser before it (0071);
+    Welcome used `PAGE_SIZE` as an `Array` template argument, which is not a constant
+    expression under glibc (`getpagesize()`) — fixed to 4096, same pattern as Run in 0067
+    (0072).
+
+    **The Jakt toolchain was the real blocker, and its failure mode is silent.** Weather is
+    written in Jakt. Lagom's `Meta/CMake/jakt.cmake` probes for the Jakt compiler at configure
+    time and, when it is missing, *disables jakt* — every `.jakt` executable then compiles to
+    a generated stub `int main() {}` (CMake prints "Skipping Weather because jakt is disabled",
+    but the binary still builds and links). The stub exits 0 instantly: no window, no logs, a
+    clean session — symptoms identical to an app startup bug. Fix: run
+    `Toolchain/BuildJakt.sh lagom` (builds the C++ Jakt compiler from the pinned commit; no
+    Rust required) and reconfigure with `-DENABLE_JAKT=ON` — the option defaults ON, but the
+    probe's `set(... CACHE ... FORCE)` OFF value sticks in the cache once written. Weather is
+    the only Jakt app among the 43 in the Lagom list, so enabling jakt is otherwise inert; CI
+    now runs BuildJakt.sh before configure.
+
+    **Broker services follow runtime behavior, not declared DEPENDS.** Presenter's
+    `serenity_component` declares only FileSystemAccessServer, but `PresenterWidget`'s
+    constructor builds an `OutOfProcessWebView`, which connects to WebContent immediately and
+    VERIFY-fails without it — the same eager-connection pattern as Mail. Weather likewise
+    calls `Protocol::RequestClient::try_create()` at startup; if that fails the error
+    propagates out of the Jakt `main` and the app exits 0 with no output at all.
+
+    **Headless apps that demand user input need seeded config.** Weather shows a password
+    dialog when `[OpenWeatherMap] APIKey` is empty — unanswerable in a headless session, where
+    the dialog just sits open. `Core::ConfigFile::open_for_app` reads
+    `$XDG_CONFIG_HOME/<app>.ini`, so the driver seeds `APIKey=serenade-test-key` there and the
+    app skips the dialog.
+
+    **Assistant's popup is genuinely tiny.** `window->resize(desktop.width() / 3, {})` picks
+    the `(int, int)` overload (`{}` becomes height 0), which WindowServer clamps to the system
+    minimum; the resulting popup covers ~2.4% of the desktop, so its `--expect-window`
+    threshold is 0.01 (an empty desktop measures ~0). The PDFViewer probe uses
+    `Tests/LibPDF/colorspaces.pdf`: paths.pdf looked promising but its first page has *zero*
+    dark pixels (all saturated fills), and the probe counts dark-or-saturated content in the
+    central region — colorspaces measured 81,407 content pixels against a threshold of 500.
+
+    Seven new tests (#287–#293): six functional `--expect-window` checks plus the PDFViewer
+    content probe (skips without python3). Full serial ctest **293/293**; all 72 patches
+    re-verified from a pristine pin (patched tree byte-identical to the dev tree).
 
   - 2026-09-21 — **ConfigServer: don't crash when a domain's config can't be opened (patch 0068); two IPC landmines defused along the way.**
     Fixed the latent crash logged during M6 debugging ("Side note, not fixed…"): `ensure_domain_config()`

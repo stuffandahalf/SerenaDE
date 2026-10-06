@@ -1,0 +1,63 @@
+From 8a65c529768741837ddbdfad2c416f97da7b1968 Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory@serenade.local>
+Date: Sun, 4 Oct 2026 06:23:21 -0400
+Subject: [PATCH 1/4] Lagom: Build Assistant, Help, PDFViewer, Presenter,
+ Spreadsheet, Weather and Welcome
+
+These applications only depend on libraries that already build in the
+Lagom tree (LibWebView, LibWeb, LibJS, LibPDF, LibManual, LibProtocol,
+LibMarkdown, LibSyntax), so adding them to the app list is sufficient
+once their individual portability issues are addressed.
+---
+ Meta/Lagom/CMakeLists.txt | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/Meta/Lagom/CMakeLists.txt b/Meta/Lagom/CMakeLists.txt
+index 09f8bd1458..3148abb2fd 100644
+--- a/Meta/Lagom/CMakeLists.txt
++++ b/Meta/Lagom/CMakeLists.txt
+@@ -589,6 +589,7 @@ if (BUILD_LAGOM)
+         # Applications that build unmodified on host systems.
+         add_serenity_subdirectory(Userland/Applications/About)
+         add_serenity_subdirectory(Userland/Applications/AnalogClock)
++        add_serenity_subdirectory(Userland/Applications/Assistant)
+         add_serenity_subdirectory(Userland/Applications/Browser)
+         add_serenity_subdirectory(Userland/Applications/BrowserSettings)
+         add_serenity_subdirectory(Userland/Applications/Calculator)
+@@ -600,6 +601,7 @@ if (BUILD_LAGOM)
+         add_serenity_subdirectory(Userland/Applications/FileManager)
+         add_serenity_subdirectory(Userland/Applications/FontEditor)
+         add_serenity_subdirectory(Userland/Applications/GamesSettings)
++        add_serenity_subdirectory(Userland/Applications/Help)
+         add_serenity_subdirectory(Userland/Applications/HexEditor)
+         add_serenity_subdirectory(Userland/Applications/ImageViewer)
+         add_serenity_subdirectory(Userland/Applications/KeyboardMapper)
+@@ -611,13 +613,16 @@ if (BUILD_LAGOM)
+         add_serenity_subdirectory(Userland/Applications/Magnifier)
+         add_serenity_subdirectory(Userland/Applications/MouseSettings)
+         add_serenity_subdirectory(Userland/Applications/NetworkSettings)
++        add_serenity_subdirectory(Userland/Applications/PDFViewer)
+         add_serenity_subdirectory(Userland/Applications/PixelPaint)
+         add_serenity_subdirectory(Userland/Applications/Piano)
++        add_serenity_subdirectory(Userland/Applications/Presenter)
+         add_serenity_subdirectory(Userland/Applications/Run)
+         add_serenity_subdirectory(Userland/Applications/Screenshot)
+         add_serenity_subdirectory(Userland/Applications/Settings)
+         add_serenity_subdirectory(Userland/Applications/SoundPlayer)
+         add_serenity_subdirectory(Userland/Applications/SpaceAnalyzer)
++        add_serenity_subdirectory(Userland/Applications/Spreadsheet)
+ 
+         # Profiler can load perfcore dumps on host builds (live profiling is
+         # Serenity-only). SystemMonitor is not built: every one of its data
+@@ -629,6 +634,8 @@ if (BUILD_LAGOM)
+         add_serenity_subdirectory(Userland/Applications/TextEditor)
+         add_serenity_subdirectory(Userland/Applications/ThemeEditor)
+         add_serenity_subdirectory(Userland/Applications/VideoPlayer)
++        add_serenity_subdirectory(Userland/Applications/Weather)
++        add_serenity_subdirectory(Userland/Applications/Welcome)
+ 
+         # Terminal's pty helper is declared as a second target of the Terminal
+         # component; build it here so that target exists for the host build.
+-- 
+2.56.0
+

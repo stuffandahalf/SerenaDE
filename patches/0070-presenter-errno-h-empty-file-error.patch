@@ -1,0 +1,39 @@
+From 5b5869e5a1da4d9383669a8d8791df761ed19ba3 Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory@serenade.local>
+Date: Sun, 4 Oct 2026 06:23:21 -0400
+Subject: [PATCH 2/4] Presenter: Use errno.h for the empty file name error
+
+<errno_codes.h> declares ENOENT as an enumerator of Serenity's
+ErrnoCode enum class, which cannot be converted to Error on systems
+where the public <errno.h> defines it as a plain int. Include the
+public header and construct the error with Error::from_errno()
+instead.
+---
+ Userland/Applications/Presenter/Presentation.cpp | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/Userland/Applications/Presenter/Presentation.cpp b/Userland/Applications/Presenter/Presentation.cpp
+index 6e788a452f..30d02d81e9 100644
+--- a/Userland/Applications/Presenter/Presentation.cpp
++++ b/Userland/Applications/Presenter/Presentation.cpp
+@@ -9,7 +9,7 @@
+ #include <AK/JsonObject.h>
+ #include <LibCore/File.h>
+ #include <LibGUI/Window.h>
+-#include <errno_codes.h>
++#include <errno.h>
+ 
+ Presentation::Presentation(Gfx::IntSize normative_size, HashMap<ByteString, ByteString> metadata)
+     : m_normative_size(normative_size)
+@@ -84,7 +84,7 @@ void Presentation::go_to_first_slide()
+ ErrorOr<NonnullOwnPtr<Presentation>> Presentation::load_from_file(StringView file_name)
+ {
+     if (file_name.is_empty())
+-        return ENOENT;
++        return Error::from_errno(ENOENT);
+     auto file = TRY(Core::File::open_file_or_standard_stream(file_name, Core::File::OpenMode::Read));
+     auto contents = TRY(file->read_until_eof());
+     auto content_string = StringView { contents };
+-- 
+2.56.0
+

@@ -42,6 +42,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends clang-22 lld-22
 
+      # Weather is a Jakt app. Lagom builds Jakt executables only when the Jakt
+      # toolchain exists (Meta/CMake/jakt.cmake probes for it and disables jakt
+      # otherwise); without it Weather is an empty stub and app-weather-render
+      # fails. BuildJakt.sh lagom compiles the C++ Jakt compiler from the pinned
+      # commit into deps/serenity/Toolchain/Local/jakt.
+      - name: Build Jakt toolchain (for Weather)
+        run: bash deps/serenity/Toolchain/BuildJakt.sh lagom
+
       # Clang is required: GCC miscompiles AK::Vector placement-new under
       # -Werror=stringop-overflow (false positive, see docs/PORTING.md).
       - name: Configure

@@ -1,0 +1,30 @@
+From 361cbaf59e0a1f1ec0002366c13ecce2313ce8ee Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory@serenade.local>
+Date: Sun, 4 Oct 2026 06:23:21 -0400
+Subject: [PATCH 4/4] Welcome: Use a fixed tips buffer size
+
+PAGE_SIZE is not a constant expression on all systems (on Linux it is
+getpagesize()), so it cannot be used as the Array template argument.
+Tip lines are short; 4 KiB is plenty.
+---
+ Userland/Applications/Welcome/WelcomeWidget.cpp | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/Userland/Applications/Welcome/WelcomeWidget.cpp b/Userland/Applications/Welcome/WelcomeWidget.cpp
+index 0495807d58..a903b50a60 100644
+--- a/Userland/Applications/Welcome/WelcomeWidget.cpp
++++ b/Userland/Applications/Welcome/WelcomeWidget.cpp
+@@ -96,7 +96,9 @@ ErrorOr<void> WelcomeWidget::open_and_parse_tips_file()
+ {
+     auto file = TRY(Core::File::open(tips_file_path, Core::File::OpenMode::Read));
+     auto buffered_file = TRY(Core::InputBufferedFile::create(move(file)));
+-    Array<u8, PAGE_SIZE> buffer;
++    // Tip lines are short; 4 KiB is plenty and works as a template argument
++    // on host systems where PAGE_SIZE is not a constant expression.
++    Array<u8, 4096> buffer;
+ 
+     while (TRY(buffered_file->can_read_line())) {
+         auto line = TRY(buffered_file->read_line(buffer));
+-- 
+2.56.0
+

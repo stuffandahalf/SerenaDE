@@ -101,6 +101,10 @@ cmake -S . -B Build -G Ninja -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang
   `-Werror=stringop-overflow` false positive in `AK::Vector.h` via LibCompress
   LZW — use Clang (see porting log in `docs/PORTING.md`).
 - X11 dev packages (`libX11`, `libXext`) are needed from M3 onward.
+- **Weather needs the Jakt toolchain.** Run `Toolchain/BuildJakt.sh lagom` in the Serenity
+  checkout *before* configuring (it builds the C++ Jakt compiler; no Rust required). When
+  the compiler is missing Lagom silently disables jakt and builds Weather as an empty stub,
+  and `app-weather-render` fails. CI runs this step automatically.
 - `cmake --build Build` must stay green at all times, including scaffold stubs.
 
 ## Architecture decisions
@@ -455,6 +459,18 @@ TestApps fixture — synchronous IPC needs a live `Core::EventLoop` even if it n
 to fallback values AND that a second client still connects (watchdoged: pre-fix the server dies on the
 first domain open). Verified failing pre-fix / passing post-fix. Full serial ctest **286/286**; all 68
 patches re-verified from a pristine pin (patched tree byte-identical to the dev tree).
+
+**Third batch — WebContent tier (2026-10-06, patches 0069–0072).** Assistant, Help, PDFViewer, Presenter,
+Spreadsheet, Weather and Welcome now build and render on host. All seven link only already-built libraries,
+so patch 0069 adds them to the Lagom app list; per-app fixes: Presenter's `return ENOENT` → `<errno.h>` +
+`Error::from_errno(ENOENT)` (0070), Spreadsheet's GML binary-dir include path (0071), Welcome's `PAGE_SIZE`
+template argument → fixed 4096 (0072). Infrastructure discovery: Weather is a Jakt app, and Lagom silently
+compiles `.jakt` executables to an empty stub when the Jakt compiler is missing — `Toolchain/BuildJakt.sh
+lagom` plus `-DENABLE_JAKT=ON` are now prerequisites for it (CI does this; only Weather uses Jakt). Seven
+new driver tests: six functional `--expect-window` checks and one PDF content probe (`app-pdfviewer-open`,
+colorspaces.pdf opened via FileSystemAccessServer); Presenter needs WebContent as a broker because its web
+view connects at construction. Full serial ctest **293/293**; all 72 patches re-verified from a pristine pin
+(patched tree byte-identical to the dev tree).
 
 ## Patch workflow
 

@@ -1,0 +1,30 @@
+From 12aac643eac8f67e37c9dfebdfdbfce3447fbcd3 Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory@serenade.local>
+Date: Sun, 4 Oct 2026 06:23:21 -0400
+Subject: [PATCH 3/4] Spreadsheet: Add the binary directory to the include path
+
+The stringify_gml generated headers live in the build tree, and the
+<Application/Spreadsheet/...> style includes need that directory on
+the search path. Same pattern as PixelPaint, FileManager, Piano and
+Browser.
+---
+ Userland/Applications/Spreadsheet/CMakeLists.txt | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/Userland/Applications/Spreadsheet/CMakeLists.txt b/Userland/Applications/Spreadsheet/CMakeLists.txt
+index 3613ce0d86..92ffc7adb0 100644
+--- a/Userland/Applications/Spreadsheet/CMakeLists.txt
++++ b/Userland/Applications/Spreadsheet/CMakeLists.txt
+@@ -42,6 +42,9 @@ set(GENERATED_SOURCES
+ )
+ 
+ serenity_app(Spreadsheet ICON app-spreadsheet)
++# The stringify_gml headers land in the binary dir; <Applications/Spreadsheet/...>
++# includes need it (same pattern as PixelPaint, FileManager, Piano and Browser).
++target_include_directories(Spreadsheet PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/../..)
+ target_link_libraries(Spreadsheet PRIVATE LibConfig LibCore LibFileSystem LibFileSystemAccessClient LibGfx LibGUI LibJS LibMain LibMarkdown LibSyntax LibWebView LibWeb LibURL)
+ 
+ serenity_test(Writers/Test/TestXSVWriter.cpp Spreadsheet)
+-- 
+2.56.0
+
