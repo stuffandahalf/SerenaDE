@@ -1,0 +1,88 @@
+From f1c05cf9677bae11ff539dfcd911a431d44a549f Mon Sep 17 00:00:00 2001
+From: Gregory Norton <greg@serenityos.org>
+Date: Tue, 6 Oct 2026 23:25:42 -0400
+Subject: [PATCH 1/2] LibCore: Remap read-only /sys/kernel/* opens onto
+ $SERENITY_SYS
+
+On host systems there is no Serenity kernel, so /sys/kernel does not
+exist. When an open of a /sys/kernel/* path fails with ENOENT (and the
+open is read-only), retry it against $SERENITY_SYS if that variable is
+set. The SerenaDE launcher generates a sysfs data shim in a per-session
+directory and exports SERENITY_SYS, so SystemMonitor, NetworkSettings
+and SpaceAnalyzer render real host data (processes from /proc, memstat
+and cpuinfo via sysconf, df via statvfs, net adapters via getifaddrs).
+
+The remap mirrors the existing $SERENITY_RES handling for /res: File
+(open_path), System (openat) and DirIterator cover the three entry
+points the apps use. Writes are never remapped, and on Serenity itself
+the paths exist so the fallback is never taken.
+---
+ Userland/Libraries/LibCore/DirIterator.cpp | 10 ++++++++++
+ Userland/Libraries/LibCore/File.cpp        |  9 +++++++++
+ Userland/Libraries/LibCore/System.cpp      |  9 +++++++++
+ 3 files changed, 28 insertions(+)
+
+diff --git a/Userland/Libraries/LibCore/DirIterator.cpp b/Userland/Libraries/LibCore/DirIterator.cpp
+index 234ba95447..774da08f60 100644
+--- a/Userland/Libraries/LibCore/DirIterator.cpp
++++ b/Userland/Libraries/LibCore/DirIterator.cpp
+@@ -31,6 +31,16 @@ DirIterator::DirIterator(ByteString path, Flags flags)
+                     m_path = move(remapped);
+             }
+         }
++        if (!m_dir && open_error == ENOENT && m_path.starts_with("/sys/kernel/"sv)) {
++            // On host systems (Lagom builds) there is no Serenity kernel; the
++            // launcher's sysfs shim serves /sys/kernel data from $SERENITY_SYS.
++            if (auto const* sys_root = std::getenv("SERENITY_SYS")) {
++                auto remapped = ByteString::formatted("{}/{}", sys_root, m_path.substring_view(12));
++                m_dir = opendir(remapped.characters());
++                if (m_dir)
++                    m_path = move(remapped);
++            }
++        }
+         if (!m_dir)
+             m_error = Error::from_errno(open_error);
+     }
+diff --git a/Userland/Libraries/LibCore/File.cpp b/Userland/Libraries/LibCore/File.cpp
+index 15b9d6f41a..10d7668346 100644
+--- a/Userland/Libraries/LibCore/File.cpp
++++ b/Userland/Libraries/LibCore/File.cpp
+@@ -114,6 +114,15 @@ ErrorOr<void> File::open_path(StringView filename, mode_t permissions)
+             result = System::open(remapped, flags, permissions);
+         }
+     }
++    if (result.is_error() && result.error().is_syscall() && result.error().code() == ENOENT
++        && filename.starts_with("/sys/kernel/"sv) && has_flag(m_mode, OpenMode::Read)) {
++        // On host systems (Lagom builds) there is no Serenity kernel; the
++        // launcher's sysfs shim serves /sys/kernel data from $SERENITY_SYS.
++        if (auto const* sys_root = std::getenv("SERENITY_SYS")) {
++            auto remapped = TRY(String::formatted("{}/{}", sys_root, filename.substring_view(12)));
++            result = System::open(remapped, flags, permissions);
++        }
++    }
+     m_fd = TRY(result);
+     return {};
+ }
+diff --git a/Userland/Libraries/LibCore/System.cpp b/Userland/Libraries/LibCore/System.cpp
+index 1f06e24a3c..58c28c37a2 100644
+--- a/Userland/Libraries/LibCore/System.cpp
++++ b/Userland/Libraries/LibCore/System.cpp
+@@ -645,6 +645,15 @@ ErrorOr<int> openat(int fd, StringView path, int options, mode_t mode)
+             rc = ::openat(fd, remapped.characters(), options, mode);
+         }
+     }
++    if (rc < 0 && errno == ENOENT && fd == AT_FDCWD
++        && path.starts_with("/sys/kernel/"sv) && (options & O_ACCMODE) == O_RDONLY) {
++        // On host systems (Lagom builds) there is no Serenity kernel; the
++        // launcher's sysfs shim serves /sys/kernel data from $SERENITY_SYS.
++        if (auto const* sys_root = std::getenv("SERENITY_SYS")) {
++            auto remapped = ByteString::formatted("{}/{}", sys_root, path.substring_view(12));
++            rc = ::openat(fd, remapped.characters(), options, mode);
++        }
++    }
+     if (rc < 0)
+         return Error::from_syscall("open"sv, -errno);
+     return rc;
+-- 
+2.56.0
+

@@ -16,7 +16,7 @@
 // Usage:
 //   serenade-launcher --res <Base/res> --screenshot <out.png>
 //                     [--delay <ms>] [--width <n>] [--height <n>]
-//                     [--log-dir <dir>]
+//                     [--log-dir <dir>] [--sys-dir <dir>]
 //                     [--service <socket-path>=<binary>]...
 //                     [--broker-service <socket-path>=<binary>]...
 //                     [--input-root <dir>]
@@ -45,15 +45,19 @@
 #include <Kernel/API/KeyCode.h>
 #include <Kernel/API/MousePacket.h>
 
+#include <arpa/inet.h>
 #include <cerrno>
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <dirent.h>
 #include <fcntl.h>
+#include <ifaddrs.h>
 #include <sys/select.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/statvfs.h>
 #include <sys/un.h>
 #include <sys/wait.h>
 #include <time.h>
@@ -74,6 +78,7 @@ struct Options {
     const char* res_root = nullptr;
     const char* screenshot_path = nullptr;
     const char* log_dir = "/tmp";
+    const char* sys_dir = nullptr; // generated /sys/kernel shim data (default: <log-dir>/sysfs)
     int delay_ms = 2000;
     int width = 1024;
     int height = 768;
@@ -106,7 +111,7 @@ struct Options {
 [[noreturn]] void usage(const char* program)
 {
     fprintf(stderr,
-        "Usage: %s --res <Base/res> --screenshot <out.png> [--delay <ms>] [--width <n>] [--height <n>] [--scale <n>] [--cursor-theme <name>] [--log-dir <dir>]\n"
+        "Usage: %s --res <Base/res> --screenshot <out.png> [--delay <ms>] [--width <n>] [--height <n>] [--scale <n>] [--cursor-theme <name>] [--log-dir <dir>] [--sys-dir <dir>]\n"
         "              [--service <socket-path>=<binary>]...\n"
         "              [--broker-service <socket-path>=<binary>]...  (single-client services: the accepted socket is handed to a spawned instance)\n"
         "              [--input-root <dir>] [--script <file>] [--home <dir>]\n"
@@ -144,6 +149,8 @@ void parse_args(int argc, char** argv, Options& options)
             options.cursor_theme = next();
         else if (!strcmp(arg, "--log-dir"))
             options.log_dir = next();
+        else if (!strcmp(arg, "--sys-dir"))
+            options.sys_dir = next();
         else if (!strcmp(arg, "--service") || !strcmp(arg, "--broker-service")) {
             auto spec = next();
             char* separator = strchr(const_cast<char*>(spec), '=');
@@ -872,6 +879,328 @@ void on_signal(int)
 
 }
 
+// --- sysfs shim ---------------------------------------------------------------
+//
+// SystemMonitor, NetworkSettings and SpaceAnalyzer read Serenity kernel
+// pseudo-files (/sys/kernel/processes, memstat, cpuinfo, df, net/*). On a
+// host there is no Serenity kernel, so the launcher generates equivalent JSON
+// from host sources into a per-session directory and points $SERENITY_SYS at
+// it; LibCore maps /sys/kernel/* reads onto that directory (patch 0073).
+//
+// Sources: memory/cpu info via POSIX sysconf, filesystem stats via statvfs,
+// network adapters via getifaddrs -- all portable to BSDs. The process list
+// uses Linux's /proc; other OSes get an empty (but valid) list until a
+// sysctl-based backend is added (M8). See docs/PORTING.md.
+
+void json_escape(FILE* out, const char* s)
+{
+    fputc('"', out);
+    for (; *s; ++s) {
+        unsigned char c = (unsigned char)*s;
+        if (c == '"')
+            fputs("\\\"", out);
+        else if (c == '\\')
+            fputs("\\\\", out);
+        else if (c < 0x20)
+            fputs(" ", out);
+        else
+            fputc((char)c, out);
+    }
+    fputc('"', out);
+}
+
+// Read a whole small file; returns false if it could not be read.
+bool read_small_file(const char* path, char* buffer, size_t buffer_size)
+{
+    FILE* f = fopen(path, "r");
+    if (!f)
+        return false;
+    size_t n = fread(buffer, 1, buffer_size - 1, f);
+    fclose(f);
+    buffer[n] = '\0';
+    return true;
+}
+
+#ifdef __linux__
+// Parse /proc/<pid>/stat: comm is between the first '(' and last ')'; the
+// numeric fields after it start with the state (field 3).
+bool parse_proc_stat(const char* pid_path, const char** comm_out, int* ppid, int* pgid, int* sid, unsigned long long* creation_ns)
+{
+    char stat[4096];
+    if (!read_small_file(pid_path, stat, sizeof(stat)))
+        return false;
+    char* open = strchr(stat, '(');
+    char* close = strrchr(stat, ')');
+    if (!open || !close || close <= open)
+        return false;
+    *close = '\0'; // terminate comm in place (it may contain spaces or parens)
+    *comm_out = open + 1;
+    char* rest = close + 1;
+    char* tokens[32];
+    int token_count = 0;
+    for (char* p = rest; p && token_count < 32; ) {
+        while (*p == ' ')
+            ++p;
+        if (!*p)
+            break;
+        tokens[token_count++] = p;
+        p = strchr(p, ' ');
+    }
+    // tokens[0]=state [1]=ppid [2]=pgrp [3]=session ... [19]=starttime (ns since boot)
+    if (token_count < 4)
+        return false;
+    *ppid = atoi(tokens[1]);
+    *pgid = atoi(tokens[2]);
+    *sid = atoi(tokens[3]);
+    unsigned long long starttime_ticks = token_count > 19 ? strtoull(tokens[19], nullptr, 10) : 0;
+    // /proc/<pid>/stat reports starttime in clock ticks since boot.
+    long hz = sysconf(_SC_CLK_TCK);
+    if (hz < 1)
+        hz = 100;
+    unsigned long long starttime_ns = starttime_ticks * 1000000000ULL / (unsigned long)hz;
+    char btime_buf[65536];
+    if (read_small_file("/proc/stat", btime_buf, sizeof(btime_buf))) {
+        char* btime = strstr(btime_buf, "btime ");
+        unsigned long long boot_ns = btime ? strtoull(btime + 6, nullptr, 10) * 1000000000ULL : 0;
+        *creation_ns = boot_ns + starttime_ns;
+    } else {
+        *creation_ns = 0;
+    }
+    return true;
+}
+
+unsigned long long read_status_field(const char* path, const char* key)
+{
+    char buf[8192];
+    if (!read_small_file(path, buf, sizeof(buf)))
+        return 0;
+    char* line = strstr(buf, key);
+    if (!line)
+        return 0;
+    return strtoull(line + strlen(key), nullptr, 10);
+}
+
+void write_processes_json(FILE* out)
+{
+    fputs("{\"processes\":[", out);
+    DIR* proc = opendir("/proc");
+    if (!proc) {
+        fputs("],\"total_time\":0,\"total_time_kernel\":0}\n", out);
+        return;
+    }
+    bool first = true;
+    for (struct dirent* d = readdir(proc); d; d = readdir(proc)) {
+        if (d->d_name[0] < '1' || d->d_name[0] > '9')
+            continue;
+        int pid = atoi(d->d_name);
+        char stat_path[64];
+        snprintf(stat_path, sizeof(stat_path), "/proc/%d/stat", pid);
+        const char* comm = nullptr;
+        int ppid = 0, pgid = 0, sid = 0;
+        unsigned long long creation_ns = 0;
+        if (!parse_proc_stat(stat_path, &comm, &ppid, &pgid, &sid, &creation_ns))
+            continue;
+
+        char status_path[64];
+        snprintf(status_path, sizeof(status_path), "/proc/%d/status", pid);
+        unsigned long long vm_size = read_status_field(status_path, "VmSize:");
+        unsigned long long vm_rss = read_status_field(status_path, "VmRSS:");
+        char status_buf[8192];
+        unsigned uid = 0, gid = 0;
+        if (read_small_file(status_path, status_buf, sizeof(status_buf))) {
+            char* line = strstr(status_buf, "Uid:");
+            if (line)
+                uid = strtoull(line + 4, nullptr, 10);
+            line = strstr(status_buf, "Gid:");
+            if (line)
+                gid = strtoull(line + 4, nullptr, 10);
+        }
+
+        char exe[256];
+        char exe_link[64];
+        snprintf(exe_link, sizeof(exe_link), "/proc/%d/exe", pid);
+        ssize_t n = readlink(exe_link, exe, sizeof(exe) - 1);
+        exe[n < 0 ? 0 : n] = '\0';
+
+        if (!first)
+            fputc(',', out);
+        first = false;
+        fprintf(out, "{\"pid\":%d,\"pgid\":%d,\"pgp\":%d,\"sid\":%d,\"uid\":%u,\"gid\":%u,\"ppid\":%d,\"kernel\":false,"
+                     "\"name\":", pid, pgid, pgid, sid, uid, gid, ppid);
+        json_escape(out, comm);
+        fprintf(out, ",\"executable\":");
+        json_escape(out, n > 0 ? exe : "");
+        fprintf(out, ",\"tty\":\"\",\"pledge\":\"\",\"veil\":\"\",\"creation_time\":%llu,"
+                     "\"amount_virtual\":%llu,\"amount_resident\":%llu,\"amount_shared\":0,"
+                     "\"amount_dirty_private\":0,\"amount_clean_inode\":0,"
+                     "\"amount_purgeable_volatile\":0,\"amount_purgeable_nonvolatile\":0,\"threads\":[",
+                     creation_ns, vm_size, vm_rss);
+
+        char task_dir[64];
+        snprintf(task_dir, sizeof(task_dir), "/proc/%d/task", pid);
+        DIR* tasks = opendir(task_dir);
+        bool first_thread = true;
+        if (tasks) {
+            for (struct dirent* t = readdir(tasks); t; t = readdir(tasks)) {
+                if (t->d_name[0] < '1' || t->d_name[0] > '9')
+                    continue;
+                int tid = atoi(t->d_name);
+                char task_stat[64];
+                snprintf(task_stat, sizeof(task_stat), "/proc/%d/task/%d/stat", pid, tid);
+                const char* tcomm = "";
+                int dummy_ppid = 0, dummy_pgid = 0, dummy_sid = 0;
+                unsigned long long dummy_creation = 0;
+                if (parse_proc_stat(task_stat, &tcomm, &dummy_ppid, &dummy_pgid, &dummy_sid, &dummy_creation)) {
+                    if (!first_thread)
+                        fputc(',', out);
+                    first_thread = false;
+                    fprintf(out, "{\"tid\":%d,\"times_scheduled\":0,\"name\":", tid);
+                    json_escape(out, tcomm);
+                    fprintf(out, ",\"state\":\"Running\",\"time_user\":0,\"time_kernel\":0,\"cpu\":0,\"priority\":0,"
+                                "\"syscall_count\":0,\"inode_faults\":0,\"zero_faults\":0,\"cow_faults\":0,"
+                                "\"unix_socket_read_bytes\":0,\"unix_socket_write_bytes\":0,"
+                                "\"ipv4_socket_read_bytes\":0,\"ipv4_socket_write_bytes\":0,"
+                                "\"file_read_bytes\":0,\"file_write_bytes\":0}");
+                }
+            }
+            closedir(tasks);
+        }
+        fputs("]}", out);
+    }
+    closedir(proc);
+    fputs("],\"total_time\":0,\"total_time_kernel\":0}\n", out);
+}
+#endif
+
+void write_sysfs_data(const char* dir)
+{
+    if (mkdir(dir, 0755) < 0 && errno != EEXIST) {
+        fprintf(stderr, "serenade-launcher: mkdir %s: %s\n", dir, strerror(errno));
+        exit(1);
+    }
+    char net_dir[4200];
+    snprintf(net_dir, sizeof(net_dir), "%s/net", dir);
+    if (mkdir(net_dir, 0755) < 0 && errno != EEXIST) {
+        fprintf(stderr, "serenade-launcher: mkdir %s: %s\n", net_dir, strerror(errno));
+        exit(1);
+    }
+
+    // processes: host process list (Linux /proc backend; empty elsewhere).
+    char path[4200];
+    snprintf(path, sizeof(path), "%s/processes", dir);
+    FILE* out = fopen(path, "w");
+    if (!out) {
+        fprintf(stderr, "serenade-launcher: open %s: %s\n", path, strerror(errno));
+        exit(1);
+    }
+#ifdef __linux__
+    write_processes_json(out);
+#else
+    fputs("{\"processes\":[],\"total_time\":0,\"total_time_kernel\":0}\n", out);
+#endif
+    fclose(out);
+
+    // memstat: page counts (MemoryStatsWidget multiplies them by 4096).
+    unsigned long long phys_pages = (unsigned long long)sysconf(_SC_PHYS_PAGES);
+    unsigned long long avail_pages = (unsigned long long)sysconf(_SC_AVPHYS_PAGES);
+    if (phys_pages == 0)
+        phys_pages = 1; // GraphWidget divides by the total; never zero.
+    if (avail_pages > phys_pages)
+        avail_pages = phys_pages;
+    snprintf(path, sizeof(path), "%s/memstat", dir);
+    out = fopen(path, "w");
+    fprintf(out, "{\"kmalloc_allocated\":0,\"kmalloc_available\":0,"
+                 "\"physical_allocated\":%llu,\"physical_available\":%llu,"
+                 "\"physical_committed\":0,\"physical_uncommitted\":0,"
+                 "\"kmalloc_call_count\":0,\"kfree_call_count\":0}\n",
+            phys_pages - avail_pages, avail_pages);
+    fclose(out);
+
+    // cpuinfo: one entry per online CPU.
+    long ncpu = sysconf(_SC_NPROCESSORS_ONLN);
+    if (ncpu < 1)
+        ncpu = 1;
+    snprintf(path, sizeof(path), "%s/cpuinfo", dir);
+    out = fopen(path, "w");
+    fputs("[", out);
+    for (long i = 0; i < ncpu; ++i)
+        fprintf(out, "%s{\"processor\":%ld}", i ? "," : "", i);
+    fputs("]\n", out);
+    fclose(out);
+
+    // df: the session home is the shim's "mount"; statvfs gives real stats.
+    const char* home = getenv("HOME");
+    if (!home)
+        home = ".";
+    struct statvfs sf {};
+    if (statvfs(home, &sf) == 0) {
+        // Inode counters are named differently on Linux vs. the BSDs.
+        unsigned long total_inodes = 0;
+        unsigned long free_inodes = 0;
+#ifdef __linux__
+        total_inodes = (unsigned long)sf.f_files;
+        free_inodes = (unsigned long)sf.f_ffree;
+#else
+        total_inodes = (unsigned long)sf.f_inodes;
+        free_inodes = (unsigned long)sf.f_ifree;
+#endif
+        snprintf(path, sizeof(path), "%s/df", dir);
+        out = fopen(path, "w");
+        fprintf(out, "[{\"mount_point\":");
+        json_escape(out, home);
+        fprintf(out, ",\"source\":");
+        json_escape(out, "serenade-shim");
+        fprintf(out, ",\"readonly\":false,\"mount_flags\":0,"
+                     "\"block_size\":%lu,\"total_block_count\":%lu,\"free_block_count\":%lu,"
+                     "\"total_inode_count\":%lu,\"free_inode_count\":%lu}]\n",
+                (unsigned long)sf.f_bsize, (unsigned long)sf.f_blocks, (unsigned long)sf.f_bfree,
+                total_inodes, free_inodes);
+        fclose(out);
+    } else {
+        snprintf(path, sizeof(path), "%s/df", dir);
+        out = fopen(path, "w");
+        fputs("[]\n", out);
+        fclose(out);
+    }
+
+    // net/adapters: interfaces with an IPv4 address (getifaddrs is POSIX).
+    snprintf(path, sizeof(path), "%s/net/adapters", dir);
+    out = fopen(path, "w");
+    fputs("[", out);
+    bool first_adapter = true;
+    ifaddrs* addrs = nullptr;
+    if (getifaddrs(&addrs) == 0) {
+        for (ifaddrs* a = addrs; a; a = a->ifa_next) {
+            if (!a->ifa_addr || a->ifa_addr->sa_family != AF_INET)
+                continue;
+            if (!first_adapter)
+                fputc(',', out);
+            first_adapter = false;
+            fprintf(out, "{\"name\":");
+            json_escape(out, a->ifa_name);
+            fprintf(out, ",\"ipv4_address\":");
+            json_escape(out, inet_ntoa(((sockaddr_in*)a->ifa_addr)->sin_addr));
+            fprintf(out, ",\"link_speed\":0,\"link_full_duplex\":false,"
+                         "\"packets_in\":0,\"packets_out\":0,\"bytes_in\":0,\"bytes_out\":0,"
+                         "\"packets_dropped\":0}");
+        }
+        freeifaddrs(addrs);
+    }
+    fputs("]\n", out);
+    fclose(out);
+
+    // Socket tables: no portable way to enumerate host sockets; empty is
+    // valid and renders as an empty table.
+    snprintf(path, sizeof(path), "%s/net/tcp", dir);
+    out = fopen(path, "w");
+    fputs("[]\n", out);
+    fclose(out);
+    snprintf(path, sizeof(path), "%s/net/udp", dir);
+    out = fopen(path, "w");
+    fputs("[]\n", out);
+    fclose(out);
+}
+
 int main(int argc, char** argv)
 {
     Options options;
@@ -891,6 +1220,17 @@ int main(int argc, char** argv)
     setenv("WINDOW_SERVER_SCREENSHOT", options.screenshot_path, 1);
     if (options.home)
         setenv("HOME", options.home, 1); // apps read $HOME for config and default paths
+
+    // Generate the /sys/kernel shim data before any app starts so that
+    // SystemMonitor/NetworkSettings/SpaceAnalyzer find it on first read.
+    char sys_dir_path[4200];
+    if (options.sys_dir)
+        snprintf(sys_dir_path, sizeof(sys_dir_path), "%s", options.sys_dir);
+    else
+        snprintf(sys_dir_path, sizeof(sys_dir_path), "%s/sysfs", options.log_dir);
+    make_ancestor_directories(sys_dir_path);
+    write_sysfs_data(sys_dir_path);
+    setenv("SERENITY_SYS", sys_dir_path, 1);
     write_window_server_config(options.log_dir, options.width, options.height, options.scale, options.cursor_theme,
         options.x11 ? "X11" : "Virtual");
 

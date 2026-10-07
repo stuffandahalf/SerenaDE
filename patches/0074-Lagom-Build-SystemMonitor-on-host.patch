@@ -1,0 +1,114 @@
+From 24b3f6d79620cbfa8669017de2a9478a990783ee Mon Sep 17 00:00:00 2001
+From: Gregory Norton <greg@serenityos.org>
+Date: Tue, 6 Oct 2026 23:25:42 -0400
+Subject: [PATCH 2/2] Lagom: Build SystemMonitor on host
+
+Add SystemMonitor to the Lagom app list. Its data sources are served
+by the launcher's sysfs shim (see LibCore's $SERENITY_SYS remap), so
+it renders real host data instead of being skipped.
+
+Two host portability fixes are needed:
+
+- The GML headers are generated into the build tree, but main.cpp
+  includes them as <Applications/SystemMonitor/...>; add the build
+  tree's Userland directory to the app's include path (same pattern
+  as FileManager and Mail).
+- The mount-flag constants (MS_NODEV ... MS_NOREGULAR) come from
+  Serenity's Kernel/API/POSIX/unistd.h, which is unavailable on host;
+  provide #ifndef fallbacks with the same values. Likewise gate the
+  THREAD_PRIORITY_MAX sched_setparam boost behind AK_OS_SERENITY,
+  since host SCHED_OTHER only allows priority 0.
+---
+ Meta/Lagom/CMakeLists.txt                     |  7 ++--
+ .../Applications/SystemMonitor/CMakeLists.txt |  2 ++
+ Userland/Applications/SystemMonitor/main.cpp  | 34 ++++++++++++++++++-
+ 3 files changed, 39 insertions(+), 4 deletions(-)
+
+diff --git a/Meta/Lagom/CMakeLists.txt b/Meta/Lagom/CMakeLists.txt
+index 3148abb2fd..4911476ff4 100644
+--- a/Meta/Lagom/CMakeLists.txt
++++ b/Meta/Lagom/CMakeLists.txt
+@@ -625,10 +625,11 @@ if (BUILD_LAGOM)
+         add_serenity_subdirectory(Userland/Applications/Spreadsheet)
+ 
+         # Profiler can load perfcore dumps on host builds (live profiling is
+-        # Serenity-only). SystemMonitor is not built: every one of its data
+-        # sources (/sys/kernel/processes, memstat, net/*, df) is Serenity
+-        # kernel-specific and has no host equivalent.
++        # Serenity-only). SystemMonitor's data sources (/sys/kernel/processes,
++        # memstat, net/*, df) are served by the launcher's sysfs shim (see
++        # docs/PORTING.md), so it renders real host data.
+         add_serenity_subdirectory(Userland/DevTools/Profiler)
++        add_serenity_subdirectory(Userland/Applications/SystemMonitor)
+         add_serenity_subdirectory(Userland/Applications/Terminal)
+         add_serenity_subdirectory(Userland/Applications/TerminalSettings)
+         add_serenity_subdirectory(Userland/Applications/TextEditor)
+diff --git a/Userland/Applications/SystemMonitor/CMakeLists.txt b/Userland/Applications/SystemMonitor/CMakeLists.txt
+index 36d135bc7c..25228c1da0 100644
+--- a/Userland/Applications/SystemMonitor/CMakeLists.txt
++++ b/Userland/Applications/SystemMonitor/CMakeLists.txt
+@@ -27,3 +27,5 @@ set(GENERATED_SOURCES
+ 
+ serenity_app(SystemMonitor ICON app-system-monitor)
+ target_link_libraries(SystemMonitor PRIVATE LibConfig LibCore LibGfx LibGUI LibMain LibSymbolication LibThreading)
++# The GML headers are generated into the build tree; make <Applications/SystemMonitor/...> resolvable.
++target_include_directories(SystemMonitor PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/../..)
+diff --git a/Userland/Applications/SystemMonitor/main.cpp b/Userland/Applications/SystemMonitor/main.cpp
+index 02eb0ab6a2..ce1af6c513 100644
+--- a/Userland/Applications/SystemMonitor/main.cpp
++++ b/Userland/Applications/SystemMonitor/main.cpp
+@@ -57,6 +57,35 @@
+ #include <stdio.h>
+ #include <unistd.h>
+ 
++// Mount flag values are defined by Serenity in Kernel/API/POSIX/unistd.h.
++// On host systems that header is unavailable; define the same values here so
++// the mount-flags display code compiles everywhere (no-op on Serenity, where
++// they are already defined).
++#ifndef MS_NODEV
++#define MS_NODEV (1 << 0)
++#endif
++#ifndef MS_NOEXEC
++#define MS_NOEXEC (1 << 1)
++#endif
++#ifndef MS_NOSUID
++#define MS_NOSUID (1 << 2)
++#endif
++#ifndef MS_BIND
++#define MS_BIND (1 << 3)
++#endif
++#ifndef MS_RDONLY
++#define MS_RDONLY (1 << 4)
++#endif
++#ifndef MS_WXALLOWED
++#define MS_WXALLOWED (1 << 6)
++#endif
++#ifndef MS_AXALLOWED
++#define MS_AXALLOWED (1 << 7)
++#endif
++#ifndef MS_NOREGULAR
++#define MS_NOREGULAR (1 << 8)
++#endif
++
+ static ErrorOr<NonnullRefPtr<GUI::Window>> build_process_window(pid_t);
+ static ErrorOr<void> build_performance_tab(GUI::Widget&);
+ 
+@@ -227,11 +256,14 @@ ErrorOr<int> serenity_main(Main::Arguments arguments)
+     {
+         // Before we do anything else, boost our process priority to the maximum allowed.
+         // It's very frustrating when the system is bogged down under load and you just want
+-        // System Monitor to work.
++        // System Monitor to work. (Host schedulers only allow SCHED_OTHER priority 0, so
++        // there is nothing to boost.)
++#ifdef AK_OS_SERENITY
+         sched_param param {
+             .sched_priority = THREAD_PRIORITY_MAX,
+         };
+         sched_setparam(0, &param);
++#endif
+     }
+ 
+     TRY(Core::System::pledge("stdio thread proc recvfd sendfd rpath exec unix"));
+-- 
+2.56.0
+

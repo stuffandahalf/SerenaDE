@@ -6,7 +6,7 @@ using **X11** for display and input.
 
 This repo is a *shim*: it contains only the platform-specific glue (X11 screen
 and input backends, host service shims, launcher, tests, CI) plus a minimal
-tracked patch set (37 patches) applied to a pinned
+tracked patch set (74 patches) applied to a pinned
 [Serenity](https://github.com/SerenityOS/serenity) source tree, which is built
 with its official host-build system, Lagom.
 
@@ -29,7 +29,7 @@ dock. See [`AGENTS.md`](AGENTS.md) for architecture + the milestone plan, and
 
 Two run modes: **headless** (virtual screen, screenshot to PNG — used by the test
 suite) and **X11** (`--x11`, against Xvfb or a real display). The full serial ctest
-suite (golden + functional tests) is green at **293/293**.
+suite (golden + functional tests) is green at **296/296**.
 
 ## Quick start
 

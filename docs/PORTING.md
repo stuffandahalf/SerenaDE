@@ -29,11 +29,62 @@ Living tracker. Update in the same commit as the work it describes, and keep
 | TextEditor on host               | post-M6     | done        | Patches 0055–0056: LibCMake joins the standard Lagom libraries (the only lib actually missing — LibMarkdown/LibGemini/LibSyntax were already there) and LibShell's SyntaxHighlighter.cpp is un-gated from SerenityOS (TextEditor references its vtable; the gate's LibCodeComprehension link was legacy — nothing in LibShell references it). `app-texteditor-open` opens a fixed document through the FileSystemAccess portal and golden-compares the render; full serial ctest 267/267 |
 | Remaining host-viable apps       | post-M6     | done        | Patches 0057–0067: 21 more apps (Calendar, CalendarSettings, CertificateSettings, CharacterMap, DisplaySettings, FontEditor, GamesSettings, HexEditor, KeyboardMapper, KeyboardSettings, MailSettings, MapsSettings, Magnifier, MouseSettings, NetworkSettings, Run, Screenshot, SpaceAnalyzer, TerminalSettings, ThemeEditor, VideoPlayer) + the Profiler dev tool, and LibCards/LibChess/LibDebug/LibEDID/LibSymbolication join the standard libraries. Portability: LibDebug register-ABI/live-DebugSession gated to Serenity (0058); LibEDID gpu.h shim include + LibCards `<float.h>` (0059); GML binary-dir includes for four apps (0060); MouseSettings' same shim include (0061); the `$SERENITY_RES` remap extended to `DirIterator`/raw `openat` so `/res` directory scans work on host (0062 — this also fixed Settings, whose stale golden captured an empty grid and was regenerated); KeyboardMapper en-us keymap fallback (0063); DisplaySettings theme-index hardening (0064); WindowStack null-iterator segfault for a lone always-on-top window (0065, upstreamable); Profiler live-profiling gated (0066); Run `PAGE_SIZE` template fix (0067). Deferred to M7: SystemMonitor/NetworkSettings/SpaceAnalyzer (Serenity-kernel `/sys/kernel/*` data only — host data shim) and Debugger/CrashReporter (register ABI project); still out of scope: WebContent-tier apps, 3DFileViewer. 18 new tests (6 goldens via shared `app-golden.sh`, 12 `--expect-window`); full serial ctest **285/285** |
 | WebContent-tier apps (Assistant, Help, PDFViewer, Presenter, Spreadsheet, Weather, Welcome) | post-M6     | done        | Patches 0069–0072: app-list additions + per-app portability fixes (Presenter `<errno.h>`/`Error::from_errno`, Spreadsheet GML binary-dir include path, Welcome fixed tips buffer). Weather needs the Jakt toolchain (`Toolchain/BuildJakt.sh lagom` before configure) — without it Lagom silently builds a stub. Seven driver tests: six functional `--expect-window` checks + `app-pdfviewer-open`, which pixel-probes `Tests/LibPDF/colorspaces.pdf` opened through FileSystemAccessServer; full serial ctest **293/293** |
+| Host `/sys/kernel` data shim (SystemMonitor, NetworkSettings, SpaceAnalyzer) | M7a       | done        | Patch 0073: LibCore remaps read-only `/sys/kernel/*` opens that fail with ENOENT onto `$SERENITY_SYS` (File/System/DirIterator — the same three entry points as the `$SERENITY_RES` remap); the launcher generates a per-session JSON shim (`--sys-dir`, default `<log-dir>/sysfs`): processes from `/proc`, memstat/cpuinfo via `sysconf`, df via `statvfs($HOME)`, net adapters via `getifaddrs`. Patch 0074 adds SystemMonitor to the Lagom app list (GML binary-dir include path; Serenity-only mount-flag constants and the priority boost gated). Three functional `--expect-window` tests (#294–#296); full serial ctest **296/296** |
 
 ## Porting log
 
 Record discoveries here as they happen (surprising `#ifdef` gaps, API quirks,
  decisions with trade-offs). Newest first.
+
+  - 2026-10-07 — **M7 subtask A: host `/sys/kernel` data shim (patches 0073–0074).**
+    SystemMonitor, NetworkSettings and SpaceAnalyzer now render real host data. All three
+    read only Serenity-kernel pseudo-files (`/sys/kernel/processes`, `memstat`, `cpuinfo`,
+    `df`, `net/adapters|tcp|udp`), which do not exist on a host. The design mirrors the
+    existing `$SERENITY_RES` remap: patch 0073 makes LibCore retry read-only opens of
+    `/sys/kernel/*` paths that fail with ENOENT against `$SERENITY_SYS`, at all three entry
+    points the apps use (`File::open_path`, raw `System::openat`, and `DirIterator`/
+    `opendir`). Writes are never remapped, and on Serenity itself the paths exist so the
+    fallback is never taken. The launcher generates the shim into a per-session directory
+    before any app starts (`--sys-dir`, default `<log-dir>/sysfs`) and exports
+    `SERENITY_SYS`; the apps' `unveil("/sys/kernel")` calls are safe because unveil/pledge
+    are already host no-ops (patch 0003).
+
+    **All five data sources are JSON in this pin**, each with its own reader:
+    - `processes` — parsed by LibCore's `ProcessStatisticsReader`. Generated from
+      `/proc/<pid>/{stat,status}` (a named Linux backend; other OSes get an empty-but-valid
+      list, with a sysctl-based generator as M8 follow-up). Three `/proc` quirks bit us:
+      comm can contain spaces or parens, so it is delimited by the *last* `)` on the stat
+      line and must be NUL-terminated in place; `starttime` (field 22) is clock ticks since
+      boot, not nanoseconds — convert with `_SC_CLK_TCK`; and `/proc/stat`'s `btime` line
+      sits past the first 4 KB on many-core machines (after all the per-CPU lines), so the
+      buffer must be 64 KB.
+    - `memstat` — page counts; SystemMonitor's widgets multiply by 4096, and its GraphWidget
+      *divides* by `physical_total`, so total must be nonzero. From `_SC_PHYS_PAGES` /
+      `_SC_AVPHYS_PAGES`.
+    - `cpuinfo` — `[{"processor":N}, ...]`; from `_SC_NPROCESSORS_ONLN`.
+    - `df` — one mount entry with block/inode stats. The session home is the shim's only
+      "mount" (walking `/` for real mounts would be far too slow for tests); stats come
+      from `statvfs($HOME)`. Note glibc names the inode counters `f_files`/`f_ffree` while
+      the BSDs use `f_inodes`/`f_ifree`.
+    - `net/adapters` — one entry per interface from `getifaddrs`; `net/tcp` and `net/udp`
+      are empty lists (no host connection data).
+
+    **Patch 0074 adds SystemMonitor to the Lagom app list** (NetworkSettings and
+    SpaceAnalyzer have built since batch 2 — they just had no data). Two host fixes were
+    needed: its GML headers are included as `<Applications/SystemMonitor/...>`, so it needs
+    the binary-dir include path (the 0071 pattern); and the mount-flag constants
+    (`MS_NODEV`…`MS_NOREGULAR`) come from Serenity's `Kernel/API/POSIX/unistd.h`, which is
+    unavailable on hosts — same-value `#ifndef` fallbacks cover it. The `THREAD_PRIORITY_MAX`
+    (99) `sched_setparam` boost is gated to Serenity: host SCHED_OTHER only allows priority 0
+    (same family as the async_enqueue EINVAL fix in 0052).
+
+    Three new driver tests (#294–#296), all functional `--expect-window`: SystemMonitor's
+    process table fills from live `/proc` data; NetworkSettings renders one row per
+    non-loopback adapter (it exits(1) with a message box if *every* adapter is named "loop" —
+    CI runners have real interfaces via getifaddrs); SpaceAnalyzer seeds the session home
+    with an 8 MiB file and a small text file so its treemap walk has real content. No goldens:
+    the data is host-specific. Full serial ctest **296/296**; all 74 patches re-verified from
+    a pristine pin (patched tree byte-identical to the dev tree).
 
   - 2026-10-06 — **Third Lagom batch: the WebContent-tier apps (patches 0069–0072).**
     Assistant, Help, PDFViewer, Presenter, Spreadsheet, Weather and Welcome now build and

@@ -472,6 +472,8 @@ colorspaces.pdf opened via FileSystemAccessServer); Presenter needs WebContent a
 view connects at construction. Full serial ctest **293/293**; all 72 patches re-verified from a pristine pin
 (patched tree byte-identical to the dev tree).
 
+**M7a — Host `/sys/kernel` data shim (2026-10-07, patches 0073–0074).** SystemMonitor, NetworkSettings and SpaceAnalyzer now render real host data. Patch 0073 extends the remap machinery to `/sys/kernel`: LibCore retries read-only opens that fail with ENOENT against `$SERENITY_SYS` at all three entry points (`File::open_path`, raw `System::openat`, `DirIterator`), mirroring the existing `$SERENITY_RES` handling. The launcher generates a per-session JSON shim before apps start (`--sys-dir`, default `<log-dir>/sysfs`): `processes` from `/proc` (named Linux backend; empty-but-valid list on other OSes — M8 follow-up), `memstat`/`cpuinfo` via POSIX `sysconf`, `df` via `statvfs($HOME)` (the session home is the shim's only "mount"), and `net/adapters` via `getifaddrs` (tcp/udp are empty lists). Patch 0074 adds SystemMonitor to the Lagom app list with two host fixes: the GML binary-dir include path (0071 pattern) and Serenity-only constants — `MS_*` mount flags as same-value `#ifndef` fallbacks, and the `THREAD_PRIORITY_MAX` boost gated to Serenity (host SCHED_OTHER only allows priority 0). Three new driver tests (#294–#296), all functional `--expect-window`; SpaceAnalyzer seeds the session home so its treemap has content. Full serial ctest **296/296**; all 74 patches re-verified from a pristine pin (patched tree byte-identical to the dev tree). **M7b (register ABI → Debugger + CrashReporter) is next.**
+
 ## Patch workflow
 
 See `patches/README.md`. Summary: create against the pinned ref in a scratch

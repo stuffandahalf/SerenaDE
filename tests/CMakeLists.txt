@@ -846,6 +846,57 @@ add_test(NAME app-welcome-render
         $<TARGET_FILE:WebContent>)
 set_tests_properties(app-welcome-render PROPERTIES TIMEOUT 120)
 
+# M7: SystemMonitor renders its process list from the host /sys/kernel shim.
+# The launcher generates <logdir>/sysfs (processes from /proc, memstat/cpuinfo
+# via sysconf, df via statvfs, net adapters via getifaddrs) and LibCore remaps
+# the app's read-only /sys/kernel/* opens onto it ($SERENITY_SYS). No pixel
+# golden: the table is live host data.
+add_test(NAME app-systemmonitor-render
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/systemmonitor-render.sh
+        $<TARGET_FILE:serenade-launcher>
+        ${SERENITY_SOURCE_DIR}/Base/res
+        ${CMAKE_CURRENT_BINARY_DIR}/app-systemmonitor.png
+        ${CMAKE_CURRENT_BINARY_DIR}
+        $<TARGET_FILE:WindowServer>
+        $<TARGET_FILE:SystemMonitor>
+        $<TARGET_FILE:ConfigServer>
+        $<TARGET_FILE:Clipboard>
+        $<TARGET_FILE:LaunchServer>)
+set_tests_properties(app-systemmonitor-render PROPERTIES TIMEOUT 120)
+
+# M7: NetworkSettings renders one row per non-loopback adapter from the shim's
+# net/adapters (getifaddrs). The app exits(1) if every adapter is "loop"; CI
+# runners have a real interface. No pixel golden: the list is host-specific.
+add_test(NAME app-networksettings-render
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/networksettings-render.sh
+        $<TARGET_FILE:serenade-launcher>
+        ${SERENITY_SOURCE_DIR}/Base/res
+        ${CMAKE_CURRENT_BINARY_DIR}/app-networksettings.png
+        ${CMAKE_CURRENT_BINARY_DIR}
+        $<TARGET_FILE:WindowServer>
+        $<TARGET_FILE:NetworkSettings>
+        $<TARGET_FILE:ConfigServer>
+        $<TARGET_FILE:Clipboard>
+        $<TARGET_FILE:LaunchServer>)
+set_tests_properties(app-networksettings-render PROPERTIES TIMEOUT 120)
+
+# M7: SpaceAnalyzer renders its treemap for the shim's single df mount (the
+# session home, real statvfs stats). The driver seeds the home with an 8 MiB
+# file and a small text file so the map has non-trivial content. No pixel
+# golden: block counts are host-specific.
+add_test(NAME app-spaceanalyzer-render
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/spaceanalyzer-render.sh
+        $<TARGET_FILE:serenade-launcher>
+        ${SERENITY_SOURCE_DIR}/Base/res
+        ${CMAKE_CURRENT_BINARY_DIR}/app-spaceanalyzer.png
+        ${CMAKE_CURRENT_BINARY_DIR}
+        $<TARGET_FILE:WindowServer>
+        $<TARGET_FILE:SpaceAnalyzer>
+        $<TARGET_FILE:ConfigServer>
+        $<TARGET_FILE:Clipboard>
+        $<TARGET_FILE:LaunchServer>)
+set_tests_properties(app-spaceanalyzer-render PROPERTIES TIMEOUT 120)
+
 # --- Service robustness ------------------------------------------------------
 # ConfigServer must survive an uncreatable config directory. The driver poisons
 # XDG_CONFIG_HOME (a path under a regular file, so Directory::create fails with
