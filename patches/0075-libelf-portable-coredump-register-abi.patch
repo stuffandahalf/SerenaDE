@@ -1,0 +1,110 @@
+From 2aa0063538fd51f9120f464cebc3457719df6ebb Mon Sep 17 00:00:00 2001
+From: Gregory Norton <greg@serenityos.org>
+Date: Thu, 8 Oct 2026 03:46:28 -0400
+Subject: [PATCH 1/4] LibELF: Define the coredump register ABI portably
+
+ELF::Core::ThreadInfo embeds a PtraceRegisters, which previously came from
+Serenity's sys/arch/regs.h and could not be built on host systems. Add
+LibELF/Registers.h with the packed register layout (identical to Serenity's)
+and forward to sys/arch/regs.h under AK_OS_SERENITY so the coredump format
+stays byte-compatible while LibCoredump can parse real cores on Linux/BSDs.
+---
+ Userland/Libraries/LibELF/Core.h      |  2 +-
+ Userland/Libraries/LibELF/Registers.h | 72 +++++++++++++++++++++++++++
+ 2 files changed, 73 insertions(+), 1 deletion(-)
+ create mode 100644 Userland/Libraries/LibELF/Registers.h
+
+diff --git a/Userland/Libraries/LibELF/Core.h b/Userland/Libraries/LibELF/Core.h
+index ac0ac5962d..7527d30258 100644
+--- a/Userland/Libraries/LibELF/Core.h
++++ b/Userland/Libraries/LibELF/Core.h
+@@ -7,7 +7,7 @@
+ #pragma once
+ 
+ #include <AK/Types.h>
+-#include <sys/arch/regs.h>
++#include <LibELF/Registers.h>
+ 
+ #ifndef KERNEL
+ #    include <AK/ByteString.h>
+diff --git a/Userland/Libraries/LibELF/Registers.h b/Userland/Libraries/LibELF/Registers.h
+new file mode 100644
+index 0000000000..39cdc8dfe4
+--- /dev/null
++++ b/Userland/Libraries/LibELF/Registers.h
+@@ -0,0 +1,72 @@
++/*
++ * Copyright (c) 2026, Gregory Norton.
++ *
++ * SPDX-License-Identifier: BSD-2-Clause
++ */
++
++#pragma once
++
++#include <AK/Platform.h>
++#include <AK/Types.h>
++
++#ifdef AK_OS_SERENITY
++#    include <sys/arch/regs.h>
++#else
++
++// On host systems Serenity's sys/arch/regs.h is unavailable because it pulls
++// in kernel headers. Define the same register ABI here, mirroring
++// Kernel/Arch/<arch>/mcontext.h, so that live debugging (ptrace) and coredump
++// parsing share one representation of a thread's CPU state on every platform.
++
++#if ARCH(X86_64)
++struct [[gnu::packed]] PtraceRegisters {
++    uint64_t rax;
++    uint64_t rcx;
++    uint64_t rdx;
++    uint64_t rbx;
++    uint64_t rsp;
++    uint64_t rbp;
++    uint64_t rsi;
++    uint64_t rdi;
++    uint64_t rip;
++    uint64_t r8;
++    uint64_t r9;
++    uint64_t r10;
++    uint64_t r11;
++    uint64_t r12;
++    uint64_t r13;
++    uint64_t r14;
++    uint64_t r15;
++    uint64_t rflags;
++    uint32_t cs;
++    uint32_t ss;
++    uint32_t ds;
++    uint32_t es;
++    uint32_t fs;
++    uint32_t gs;
++
++    FlatPtr ip() const
++    {
++        return rip;
++    }
++
++    void set_ip(FlatPtr ip)
++    {
++        rip = ip;
++    }
++
++    FlatPtr bp() const
++    {
++        return rbp;
++    }
++
++    void set_bp(FlatPtr bp)
++    {
++        rbp = bp;
++    }
++};
++#else
++#    error The host register ABI fallback is only defined for x86_64 so far
++#endif
++
++#endif
+-- 
+2.56.0
+

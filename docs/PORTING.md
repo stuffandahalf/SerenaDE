@@ -30,11 +30,44 @@ Living tracker. Update in the same commit as the work it describes, and keep
 | Remaining host-viable apps       | post-M6     | done        | Patches 0057–0067: 21 more apps (Calendar, CalendarSettings, CertificateSettings, CharacterMap, DisplaySettings, FontEditor, GamesSettings, HexEditor, KeyboardMapper, KeyboardSettings, MailSettings, MapsSettings, Magnifier, MouseSettings, NetworkSettings, Run, Screenshot, SpaceAnalyzer, TerminalSettings, ThemeEditor, VideoPlayer) + the Profiler dev tool, and LibCards/LibChess/LibDebug/LibEDID/LibSymbolication join the standard libraries. Portability: LibDebug register-ABI/live-DebugSession gated to Serenity (0058); LibEDID gpu.h shim include + LibCards `<float.h>` (0059); GML binary-dir includes for four apps (0060); MouseSettings' same shim include (0061); the `$SERENITY_RES` remap extended to `DirIterator`/raw `openat` so `/res` directory scans work on host (0062 — this also fixed Settings, whose stale golden captured an empty grid and was regenerated); KeyboardMapper en-us keymap fallback (0063); DisplaySettings theme-index hardening (0064); WindowStack null-iterator segfault for a lone always-on-top window (0065, upstreamable); Profiler live-profiling gated (0066); Run `PAGE_SIZE` template fix (0067). Deferred to M7: SystemMonitor/NetworkSettings/SpaceAnalyzer (Serenity-kernel `/sys/kernel/*` data only — host data shim) and Debugger/CrashReporter (register ABI project); still out of scope: WebContent-tier apps, 3DFileViewer. 18 new tests (6 goldens via shared `app-golden.sh`, 12 `--expect-window`); full serial ctest **285/285** |
 | WebContent-tier apps (Assistant, Help, PDFViewer, Presenter, Spreadsheet, Weather, Welcome) | post-M6     | done        | Patches 0069–0072: app-list additions + per-app portability fixes (Presenter `<errno.h>`/`Error::from_errno`, Spreadsheet GML binary-dir include path, Welcome fixed tips buffer). Weather needs the Jakt toolchain (`Toolchain/BuildJakt.sh lagom` before configure) — without it Lagom silently builds a stub. Seven driver tests: six functional `--expect-window` checks + `app-pdfviewer-open`, which pixel-probes `Tests/LibPDF/colorspaces.pdf` opened through FileSystemAccessServer; full serial ctest **293/293** |
 | Host `/sys/kernel` data shim (SystemMonitor, NetworkSettings, SpaceAnalyzer) | M7a       | done        | Patch 0073: LibCore remaps read-only `/sys/kernel/*` opens that fail with ENOENT onto `$SERENITY_SYS` (File/System/DirIterator — the same three entry points as the `$SERENITY_RES` remap); the launcher generates a per-session JSON shim (`--sys-dir`, default `<log-dir>/sysfs`): processes from `/proc`, memstat/cpuinfo via `sysconf`, df via `statvfs($HOME)`, net adapters via `getifaddrs`. Patch 0074 adds SystemMonitor to the Lagom app list (GML binary-dir include path; Serenity-only mount-flag constants and the priority boost gated). Three functional `--expect-window` tests (#294–#296); full serial ctest **296/296** |
+| Debugger + CrashReporter on host  | M7b       | done        | Patches 0075–0078: portable packed `PtraceRegisters` in new `LibELF/Registers.h`; LibDebug `DebugSession` Linux ptrace backend (`PT_*`→`PTRACE_*`, glibc `user_regs_struct` field copy, libs from `/proc/<pid>/maps`, watchpoints Serenity-only); Lagom builds LibCoredump/CrashReporter/Debugger; ELF validation tolerates unknown segment types. Tests `debugger-attach` (#298) and `crash-reporter-render` (#299) with two fixture binaries; full serial ctest **299/299** |
 
 ## Porting log
 
 Record discoveries here as they happen (surprising `#ifdef` gaps, API quirks,
  decisions with trade-offs). Newest first.
+
+  - 2026-10-08 — **M7 subtask B: register ABI → Debugger + CrashReporter (patches 0075–0078).**
+    The blocker for both apps was `ELF::Core::ThreadInfo` embedding Serenity's
+    `PtraceRegisters` from `<sys/arch/regs.h>`. Patch 0075 moves the packed layout
+    into a new portable `LibELF/Registers.h` that forwards to `sys/arch/regs.h` on
+    Serenity, so LibDebug/LibELF/LibCoredump share one ABI everywhere (LibELF is the
+    right home: both LibDebug and LibCoredump already link it). Patch 0076 gives
+    `DebugSession` a Linux backend — `PT_*` maps to `PTRACE_*`, registers are copied
+    field-by-field from glibc's `user_regs_struct` (the layouts differ), loaded
+    libraries are parsed from `/proc/<pid>/maps` with a shared `add_object` lambda,
+    and watchpoints stay Serenity-gated because host kernels do not expose x86
+    debug registers through this ABI. Since hosts have no loader breakpoint, the
+    test fixture raises SIGTRAP itself as the first stop. Host quirks found while
+    getting Debugger running: glibc's `waitpid` returns EINVAL for the BSD-style
+    `WEXITED` flag (plain waitpid reports exits fine); `/proc/<pid>/maps` contains
+    non-ELF backing files (`/etc/ld.so.cache`) that must be skipped before
+    constructing an `ELF::Image`; and modern glibc ld.so emits program headers with
+    type values like `0x64726130` ("dra0") that Serenity's validator rejected — patch
+    0078 tolerates unknown types on host builds. Debugger also dereferenced a null
+    `library_at(ip)` when the debuggee stopped inside libc (patch 0076). Patch 0077
+    wires LibCoredump, CrashReporter and Debugger into Lagom; CrashReporter's malloc
+    scrub heuristics get inlined constants where `mallocdefs.h` is unavailable. The
+    CrashReporter test generates a synthetic kernel-format core with `coredump-fixture`:
+    ET_CORE with one PT_LOAD per reference-binary segment plus a fake stack whose
+    frame chain unwinds `inner_crash()` → `main`, wrapped in the single "SerenityOS"
+    note (namesz 11 — the StringView literal includes its explicit NUL). Two tests:
+    `debugger-attach` (#298, CLI only, greps for "Program is stopped at") and
+    `crash-reporter-render` (#299, launcher window + backtrace lines in the app log;
+    no golden — symbol addresses are build-specific). Full serial ctest **299/299**;
+    all 78 patches re-verified from a pristine pin (patched tree byte-identical to the
+    dev tree). Note: `TestTLSHandshake` flakes when host DNS is momentarily down —
+    it passed on rerun.
 
   - 2026-10-07 — **M7 subtask A: host `/sys/kernel` data shim (patches 0073–0074).**
     SystemMonitor, NetworkSettings and SpaceAnalyzer now render real host data. All three

@@ -1,0 +1,78 @@
+From 879f03cc1047f7b427a2f37bf3317d67d56aae96 Mon Sep 17 00:00:00 2001
+From: Gregory Norton <greg@serenityos.org>
+Date: Thu, 8 Oct 2026 03:46:28 -0400
+Subject: [PATCH 3/4] Lagom: Build LibCoredump, CrashReporter and Debugger on
+ host
+
+Wire the Coredump library and the two apps into the Lagom build. Fall back
+to SIGINVAL when Serenity's signal enum has no equivalent for the coredump
+termination signal, and inline the malloc scrub constants that CrashReporter
+uses as heuristics since Serenity's mallocdefs.h is unavailable on hosts.
+---
+ Meta/Lagom/CMakeLists.txt                    |  3 +++
+ Userland/Applications/CrashReporter/main.cpp | 10 +++++++++-
+ Userland/Libraries/LibCoredump/Reader.cpp    |  6 ++++++
+ 3 files changed, 18 insertions(+), 1 deletion(-)
+
+diff --git a/Meta/Lagom/CMakeLists.txt b/Meta/Lagom/CMakeLists.txt
+index 4911476ff4..ab042576f3 100644
+--- a/Meta/Lagom/CMakeLists.txt
++++ b/Meta/Lagom/CMakeLists.txt
+@@ -475,6 +475,7 @@ if (BUILD_LAGOM)
+         Crypto
+         CMake
+         Cpp
++        Coredump
+         Debug
+         Desktop
+         DeviceTree
+@@ -597,6 +598,8 @@ if (BUILD_LAGOM)
+         add_serenity_subdirectory(Userland/Applications/CalendarSettings)
+         add_serenity_subdirectory(Userland/Applications/CertificateSettings)
+         add_serenity_subdirectory(Userland/Applications/CharacterMap)
++        add_serenity_subdirectory(Userland/Applications/CrashReporter)
++        add_serenity_subdirectory(Userland/Applications/Debugger)
+         add_serenity_subdirectory(Userland/Applications/DisplaySettings)
+         add_serenity_subdirectory(Userland/Applications/FileManager)
+         add_serenity_subdirectory(Userland/Applications/FontEditor)
+diff --git a/Userland/Applications/CrashReporter/main.cpp b/Userland/Applications/CrashReporter/main.cpp
+index 6dfd09c456..f1278b8781 100644
+--- a/Userland/Applications/CrashReporter/main.cpp
++++ b/Userland/Applications/CrashReporter/main.cpp
+@@ -37,7 +37,15 @@
+ #include <LibMain/Main.h>
+ #include <LibThreading/BackgroundAction.h>
+ #include <LibURL/URL.h>
+-#include <mallocdefs.h>
++#ifdef AK_OS_SERENITY
++#    include <mallocdefs.h>
++#else
++// Serenity's malloc scrub patterns, used below only as heuristics for
++// recognizing scrubbed memory in a coredump. On hosts the Serenity LibC
++// header is unavailable, so inline the same values.
++static constexpr unsigned char MALLOC_SCRUB_BYTE = 0xdc;
++static constexpr unsigned char FREE_SCRUB_BYTE = 0xed;
++#endif
+ #include <spawn.h>
+ #include <string.h>
+ #include <unistd.h>
+diff --git a/Userland/Libraries/LibCoredump/Reader.cpp b/Userland/Libraries/LibCoredump/Reader.cpp
+index ae5d872ce0..d7be4c9ecc 100644
+--- a/Userland/Libraries/LibCoredump/Reader.cpp
++++ b/Userland/Libraries/LibCoredump/Reader.cpp
+@@ -18,6 +18,12 @@
+ #include <string.h>
+ #include <unistd.h>
+ 
++#ifndef AK_OS_SERENITY
++// Serenity uses SIGINVAL (0) as a "no signal" sentinel; host libc has no such
++// constant, and NSIG is provided by the host signal.h.
++static constexpr u8 SIGINVAL = 0;
++#endif
++
+ template<>
+ struct AK::Traits<Elf64_Note> : public AK::DefaultTraits<Elf64_Note> {
+     static constexpr bool is_trivially_serializable() { return true; }
+-- 
+2.56.0
+

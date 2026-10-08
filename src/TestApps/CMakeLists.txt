@@ -64,3 +64,21 @@ target_include_directories(launch-terminal PRIVATE
     ${CMAKE_BINARY_DIR}/lagom/Userland/Services
 )
 target_link_libraries(launch-terminal PRIVATE AK LibCore LibDesktop LibURL LibMain)
+
+# debuggee-fixture: a tiny debugee that raises SIGTRAP as its first action, for
+# the debugger-attach test (hosts have no loader breakpoint). coredump-fixture
+# generates a synthetic Serenity-format coredump whose backtrace resolves
+# against real symbols in this binary, for the crash-reporter test.
+add_executable(debuggee-fixture debuggee_fixture.cpp)
+
+add_executable(coredump-fixture coredump_fixture.cpp)
+target_include_directories(coredump-fixture PRIVATE
+    ${SERENITY_SOURCE_DIR}
+    ${SERENITY_SOURCE_DIR}/Userland
+    ${SERENITY_SOURCE_DIR}/Userland/Libraries
+    ${CMAKE_BINARY_DIR}
+    ${CMAKE_BINARY_DIR}/lagom
+    ${CMAKE_BINARY_DIR}/lagom/Userland/Libraries
+    ${CMAKE_BINARY_DIR}/lagom/Userland/Services
+)
+target_link_libraries(coredump-fixture PRIVATE AK LibCore LibELF)

@@ -1,0 +1,39 @@
+From 5e275341aa3d9f6eaec8502167abc0de0fd03993 Mon Sep 17 00:00:00 2001
+From: Gregory Norton <greg@serenityos.org>
+Date: Thu, 8 Oct 2026 03:46:28 -0400
+Subject: [PATCH 4/4] LibELF: Tolerate unknown program header types in host
+ builds
+
+Modern host loaders and linkers emit segment types Serenity's userland does
+not know about (e.g. glibc ld.so dependency notes). Consumers like LibDebug
+only care about LOAD/NOTE segments, so accept such files instead of
+rejecting them.
+---
+ Userland/Libraries/LibELF/Validation.cpp | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/Userland/Libraries/LibELF/Validation.cpp b/Userland/Libraries/LibELF/Validation.cpp
+index f9458afb46..f4b9d18f0a 100644
+--- a/Userland/Libraries/LibELF/Validation.cpp
++++ b/Userland/Libraries/LibELF/Validation.cpp
+@@ -342,9 +342,17 @@ bool validate_program_headers(Elf_Ehdr const& elf_header, size_t file_size, Read
+             break;
+         default:
+             // Not handling other program header types in other code so... let's not surprise them
++#ifdef AK_OS_SERENITY
+             if (verbose)
+                 dbgln("Found program header ({}) of unrecognized type {}!", header_index, program_header.p_type);
+             return false;
++#else
++            // Host loaders and linkers can emit segment types that Serenity's
++            // userland does not know about (e.g. glibc ld.so dependency notes).
++            // Consumers like LibDebug only care about LOAD/NOTE segments, so
++            // accept the file anyway.
++            break;
++#endif
+         }
+     }
+     return true;
+-- 
+2.56.0
+
