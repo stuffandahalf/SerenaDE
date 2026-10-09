@@ -37,6 +37,16 @@ Living tracker. Update in the same commit as the work it describes, and keep
 Record discoveries here as they happen (surprising `#ifdef` gaps, API quirks,
  decisions with trade-offs). Newest first.
 
+  - 2026-10-09 — **CI fix: Jakt needs LLVM dev packages, not just clang-22.** The
+    `Build Jakt toolchain` step died with "Could not find a configuration file for
+    package 'LLVM' that exactly matches requested version 22.1.8". Root cause: apt's
+    `clang-22` ships the ClangConfig shim at `/usr/lib/cmake/clang-22`, but that shim
+    internally does `find_package(LLVM ${CLANG_VERSION} REQUIRED)`, and `LLVMConfig.cmake`
+    for 22 lives in `llvm-22-dev` — not installed with `--no-install-recommends`. Jakt
+    additionally links `libclang` (its clang cpp-import processor) and needs
+    `LLVM_INCLUDE_DIRS`, so CI now installs `llvm-22-dev` and `libclang-22-dev`
+    alongside `clang-22`/`lld-22`.
+
   - 2026-10-08 — **M7 subtask B: register ABI → Debugger + CrashReporter (patches 0075–0078).**
     The blocker for both apps was `ELF::Core::ThreadInfo` embedding Serenity's
     `PtraceRegisters` from `<sys/arch/regs.h>`. Patch 0075 moves the packed layout

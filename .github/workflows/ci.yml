@@ -40,7 +40,13 @@ jobs:
           echo "deb [signed-by=/usr/share/keyrings/llvm-archive-keyring.gpg] https://apt.llvm.org/${CODENAME}/ llvm-toolchain-${CODENAME}-22 main" \
             | sudo tee /etc/apt/sources.list.d/llvm-22.list
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends clang-22 lld-22
+          # llvm-22-dev + libclang-22-dev are not just nice-to-have: the Jakt
+          # compiler's CMake does find_package(Clang), whose ClangConfig shim
+          # requires the matching LLVMConfig.cmake (in llvm-22-dev), and jakt
+          # links libclang for its cpp import processor. Without them the
+          # toolchain step fails with "Could not find ... LLVM ... 22.1.8".
+          sudo apt-get install -y --no-install-recommends \
+            clang-22 lld-22 llvm-22-dev libclang-22-dev
 
       # Weather is a Jakt app. Lagom builds Jakt executables only when the Jakt
       # toolchain exists (Meta/CMake/jakt.cmake probes for it and disables jakt
