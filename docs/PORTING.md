@@ -37,6 +37,20 @@ Living tracker. Update in the same commit as the work it describes, and keep
 Record discoveries here as they happen (surprising `#ifdef` gaps, API quirks,
  decisions with trade-offs). Newest first.
 
+  - 2026-10-09 — **M8 kickoff: FreeBSD CI job returns + `--expect-window` polling.** The vmactions
+    `build-freebsd` job (dropped in `7ebcda8`) is back, running the suite serially minus two known
+    Linux-only tests: `app-weather-render` (no Jakt toolchain built in the VM) and `debugger-attach`
+    (LibDebug's ptrace backend). Patch **0079** gates that backend behind `AK_OS_LINUX`: BSDs have
+    `ptrace(2)` but with different request semantics and register structs (FreeBSD's `struct reg` is
+    not glibc's `user_regs_struct`) and no `/proc/<pid>/maps`, so LibDebug/Debugger/CrashReporter now
+    compile on BSDs with graceful stubs (`attach()` logs and returns nothing). Separately, the CI
+    flake in `m4-taskbar-launch` (taskbar-only fraction 0.035 < 0.070) is fixed structurally: the
+    launcher's `--expect-window` check now *polls* screenshots until the threshold is met (up to 10
+    retries, 1s apart) instead of trusting one fixed-delay shot — passing tests keep their exact
+    timing, and slow CI runners/QEMU VMs get the headroom they need. The taskbar script also clicks
+    later (500ms → 1500ms) so Taskbar has time to draw its dock icons on slow hosts. `crash-reporter-render`
+    is deliberately *not* excluded: LibCoredump + ELF symbol resolution are OS-independent.
+
   - 2026-10-09 — **CI fix: Jakt needs LLVM dev packages, not just clang-22.** The
     `Build Jakt toolchain` step died with "Could not find a configuration file for
     package 'LLVM' that exactly matches requested version 22.1.8". Root cause: apt's

@@ -19,6 +19,9 @@
 # interactive (shell prompt + rc files) and non-deterministic. With only the taskbar on screen
 # the non-background fraction is ~0.035; a launched Terminal window pushes it to ~0.12, so a
 # threshold of 0.07 cleanly distinguishes "Terminal actually launched" from "just the taskbar".
+# The launcher polls screenshots until the threshold is met (up to ~10 extra seconds), so a
+# Terminal that spawns late on a slow CI runner or inside the FreeBSD VM no longer flakes; the
+# generous pre-click delay below gives Taskbar time to draw its dock icons before the click.
 #
 # Usage: taskbar-launch.sh <launcher> <res> <screenshot> <logdir> \
 #                          <window-server> <taskbar> <config> <clipboard> <launch> <terminal>
@@ -44,7 +47,7 @@ printf '[App]\nName=&Terminal\nExecutable=%s\nCategory=&Utilities\n' "$terminal"
 printf '[App]\nName=Text &Editor\nExecutable=/usr/bin/false\nCategory=&Utilities\n' > "$apps/TextEditor.af"
 # Click the Terminal quick-launch dock icon (3rd slot, fixed position). The start button's
 # width is font-determined and the font file is identical across hosts, so this is stable.
-printf 'delay 500\nmouse click 145 754 left\ndelay 2000\n' > "$script"
+printf 'delay 1500\nmouse click 145 754 left\ndelay 2000\n' > "$script"
 
 export SERENADE_APP_DIR="$apps"
 exec "$launcher" \

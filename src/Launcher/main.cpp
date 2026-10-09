@@ -1367,9 +1367,33 @@ int main(int argc, char** argv)
 
     // Remove any stale screenshot from an earlier run: WindowServer (re)creates the file
     // on SIGUSR1, so a pre-existing file must not satisfy wait_for_file below.
-    unlink(options.screenshot_path);
-    kill(options.window_server_pid, SIGUSR1);
-    bool got_screenshot = wait_for_file(options.screenshot_path, 10000);
+    auto request_screenshot = [&]() -> bool {
+        unlink(options.screenshot_path);
+        kill(options.window_server_pid, SIGUSR1);
+        return wait_for_file(options.screenshot_path, 10000);
+    };
+
+    bool got_screenshot = request_screenshot();
+
+    // Poll for the functional window check: on slower CI runners (and inside the M8
+    // FreeBSD VM) an app spawned by scripted input -- e.g. Terminal launched by a
+    // Taskbar click in m4-taskbar-launch -- can still be starting up when the fixed
+    // settle delay expires. Re-request screenshots until the threshold is met; tests
+    // that pass on the first shot keep exactly their previous timing.
+    int remaining_polls = 10;
+    double window_fraction = -1.0;
+    while (options.expect_window_min >= 0.0 && got_screenshot) {
+        auto bmp_or_error = Serenade::load_png_bitmap({ options.screenshot_path, strlen(options.screenshot_path) });
+        if (bmp_or_error.is_error())
+            break; // let the assertion below report the read failure
+        window_fraction = Serenade::non_background_fraction(*bmp_or_error.value(), 24);
+        if (window_fraction >= options.expect_window_min)
+            break;
+        if (--remaining_polls == 0)
+            break;
+        sleep_ms(1000);
+        got_screenshot = request_screenshot();
+    }
 
     kill_and_reap(app_pid);
     kill_and_reap(co_app_pid);
@@ -1385,15 +1409,13 @@ int main(int argc, char** argv)
         // Functional check (no golden): assert a window with content appeared. Used
         // for targets whose pixels are non-deterministic, e.g. an interactive terminal
         // launched through LaunchServer -- we only care that *a* window is on screen.
-        auto bmp_or_error = Serenade::load_png_bitmap({ options.screenshot_path, strlen(options.screenshot_path) });
-        if (bmp_or_error.is_error()) {
+        if (window_fraction < 0.0) {
             fprintf(stderr, "serenade-launcher: reading %s failed\n", options.screenshot_path);
             return 1;
         }
-        double fraction = Serenade::non_background_fraction(*bmp_or_error.value(), 24);
-        printf("serenade-launcher: expect-window: %.3f of pixels are non-background (min %.3f)\n", fraction, options.expect_window_min);
-        if (fraction < options.expect_window_min) {
-            fprintf(stderr, "serenade-launcher: no window appeared (non-background fraction %.3f < %.3f)\n", fraction, options.expect_window_min);
+        printf("serenade-launcher: expect-window: %.3f of pixels are non-background (min %.3f)\n", window_fraction, options.expect_window_min);
+        if (window_fraction < options.expect_window_min) {
+            fprintf(stderr, "serenade-launcher: no window appeared (non-background fraction %.3f < %.3f)\n", window_fraction, options.expect_window_min);
             return 1;
         }
     } else if (options.golden_path) {
