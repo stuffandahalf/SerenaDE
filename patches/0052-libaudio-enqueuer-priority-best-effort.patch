@@ -1,5 +1,5 @@
 From 4c26b9cc90e15d92fb01ef596d537f15aa02260c Mon Sep 17 00:00:00 2001
-From: Gregory Norton <gregory@serenade.local>
+From: Gregory Norton <gregory.norton@me.com>
 Date: Wed, 16 Sep 2026 21:00:07 -0400
 Subject: [PATCH] LibAudio: Make the enqueuer thread's priority best-effort
 

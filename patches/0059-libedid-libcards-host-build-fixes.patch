@@ -1,5 +1,5 @@
 From 906b04e4bfd62f47f043d96e0c18f09f6bba033a Mon Sep 17 00:00:00 2001
-From: Gregory Norton <gregory@serenade.local>
+From: Gregory Norton <gregory.norton@me.com>
 Date: Fri, 18 Sep 2026 20:06:46 -0400
 Subject: [PATCH 03/11] LibEDID+LibCards: Fix host builds
 

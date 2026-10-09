@@ -1,5 +1,5 @@
 From 5ff7dcc3f00e55f0ae1eb2c3a5137d4ddb515917 Mon Sep 17 00:00:00 2001
-From: Gregory Norton <gregory@serenade.local>
+From: Gregory Norton <gregory.norton@me.com>
 Date: Wed, 16 Sep 2026 02:00:41 -0400
 Subject: [PATCH 5/6] Lagom: Build the Browser and order LibWebView after
  LibFileSystemAccessClient

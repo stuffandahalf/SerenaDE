@@ -1,5 +1,5 @@
 From 549eaebb2912c553699f911f6c384b558731c6ba Mon Sep 17 00:00:00 2001
-From: Gregory Norton <gregory@serenade.local>
+From: Gregory Norton <gregory.norton@me.com>
 Date: Thu, 17 Sep 2026 12:22:50 -0400
 Subject: [PATCH] LibShell: Build SyntaxHighlighter on host systems
 

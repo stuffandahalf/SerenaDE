@@ -1,5 +1,5 @@
 From 12aac643eac8f67e37c9dfebdfdbfce3447fbcd3 Mon Sep 17 00:00:00 2001
-From: Gregory Norton <gregory@serenade.local>
+From: Gregory Norton <gregory.norton@me.com>
 Date: Sun, 4 Oct 2026 06:23:21 -0400
 Subject: [PATCH 3/4] Spreadsheet: Add the binary directory to the include path
 

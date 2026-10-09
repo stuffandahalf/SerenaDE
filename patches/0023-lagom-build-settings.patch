@@ -1,5 +1,5 @@
 From 9d4da09a8350f05eb2f5ee5f71246e6e38e33efa Mon Sep 17 00:00:00 2001
-From: Gregory Norton <gregory@serenade.local>
+From: Gregory Norton <gregory.norton@me.com>
 Date: Thu, 03 Sep 2026 00:00:00 +0000
 Subject: [PATCH 23/23] Lagom: Build the Settings app on host systems
 

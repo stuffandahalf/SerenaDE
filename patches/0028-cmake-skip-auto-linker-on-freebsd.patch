@@ -1,5 +1,5 @@
 From 1a130f690978584924183ddb9e5ac49d1d7140ff Mon Sep 17 00:00:00 2001
-From: Gregory Norton <gregory@serenade.local>
+From: Gregory Norton <gregory.norton@me.com>
 Date: Fri, 05 Sep 2026 00:00:00 +0000
 Subject: [PATCH 28/28] CMake: Skip auto-linker selection on FreeBSD
 

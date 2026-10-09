@@ -1,5 +1,5 @@
 From ce9bb074dcc2086204a6175d6432cfdc7fc1d687 Mon Sep 17 00:00:00 2001
-From: Gregory Norton <gregory@serenade.local>
+From: Gregory Norton <gregory.norton@me.com>
 Date: Sat, 30 Aug 2026 00:00:00 +0000
 Subject: [PATCH 5/11] WindowServer: Support booting on host systems
 

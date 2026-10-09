@@ -1,5 +1,5 @@
 From de8c15ae4f881eaa48f1fda1c6158bd7c511f00a Mon Sep 17 00:00:00 2001
-From: Gregory Norton <gregory@serenade.local>
+From: Gregory Norton <gregory.norton@me.com>
 Date: Wed, 16 Sep 2026 02:00:41 -0400
 Subject: [PATCH 6/6] Browser: Add the binary dir to the include path for GML
  headers

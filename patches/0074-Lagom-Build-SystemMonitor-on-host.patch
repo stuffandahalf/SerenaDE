@@ -1,5 +1,5 @@
 From 24b3f6d79620cbfa8669017de2a9478a990783ee Mon Sep 17 00:00:00 2001
-From: Gregory Norton <greg@serenityos.org>
+From: Gregory Norton <gregory.norton@me.com>
 Date: Tue, 6 Oct 2026 23:25:42 -0400
 Subject: [PATCH 2/2] Lagom: Build SystemMonitor on host
 

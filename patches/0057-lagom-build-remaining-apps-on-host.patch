@@ -1,5 +1,5 @@
 From 51dee33ea97b9bf41f943dd0b783d9e510b79830 Mon Sep 17 00:00:00 2001
-From: Gregory Norton <gregory@serenade.local>
+From: Gregory Norton <gregory.norton@me.com>
 Date: Fri, 18 Sep 2026 20:06:46 -0400
 Subject: [PATCH 01/11] Lagom: Build the remaining host-viable apps and their
  new libraries

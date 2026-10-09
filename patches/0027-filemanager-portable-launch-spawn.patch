@@ -1,5 +1,5 @@
 From a05dbd3dd4f06de990720abac635b63a479296a1 Mon Sep 17 00:00:00 2001
-From: Gregory Norton <gregory@serenade.local>
+From: Gregory Norton <gregory.norton@me.com>
 Date: Fri, 04 Sep 2026 00:00:00 +0000
 Subject: [PATCH 27/27] FileManager: Make the launch spawn portable on non-glibc hosts
 

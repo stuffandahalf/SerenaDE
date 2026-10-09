@@ -1,5 +1,5 @@
 From 2591fcf1c5ef0e650210a24d91c83ba2f1bba3e8 Mon Sep 17 00:00:00 2001
-From: Gregory Norton <gregory@serenade.local>
+From: Gregory Norton <gregory.norton@me.com>
 Date: Wed, 16 Sep 2026 17:29:36 -0400
 Subject: [PATCH] Services: Build FileSystemAccessServer on host
 

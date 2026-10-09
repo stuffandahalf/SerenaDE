@@ -1,5 +1,5 @@
 From d2dc2c7ee3f5f52787f995b056535bbc6423226e Mon Sep 17 00:00:00 2001
-From: Gregory Norton <gregory@serenade.local>
+From: Gregory Norton <gregory.norton@me.com>
 Date: Wed, 16 Sep 2026 01:59:48 -0400
 Subject: [PATCH 4/6] LibWebView: Build the out-of-process web view in the
  Lagom build

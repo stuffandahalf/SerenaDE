@@ -1,5 +1,5 @@
 From 627449732d7398f0f1cc684c11e4413dcdfa97d2 Mon Sep 17 00:00:00 2001
-From: Gregory Norton <gregory@serenade.local>
+From: Gregory Norton <gregory.norton@me.com>
 Date: Fri, 06 Sep 2026 00:00:00 +0000
 Subject: [PATCH 35/35] Terminal: Link libutil for forkpty on BSDs
 

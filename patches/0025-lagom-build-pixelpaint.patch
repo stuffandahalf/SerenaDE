@@ -1,5 +1,5 @@
 From 504ed79e29453f9e186fabf1a845a1d4fd5f3b8c Mon Sep 17 00:00:00 2001
-From: Gregory Norton <gregory@serenade.local>
+From: Gregory Norton <gregory.norton@me.com>
 Date: Fri, 04 Sep 2026 00:00:00 +0000
 Subject: [PATCH 25/25] Lagom: Build the PixelPaint app on host systems
 

@@ -1,5 +1,5 @@
 From 9a338ab0521d80f89a74720ed46bbe5f699c38e8 Mon Sep 17 00:00:00 2001
-From: Gregory Norton <gregory@serenade.local>
+From: Gregory Norton <gregory.norton@me.com>
 Date: Mon, 21 Sep 2026 01:45:17 -0400
 Subject: [PATCH] ConfigServer: Don't crash when a domain's config file cannot
  be opened

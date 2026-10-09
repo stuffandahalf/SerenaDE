@@ -1,5 +1,5 @@
 From 4a262daf59a1fb2fb90c15293f844e8cce3e071d Mon Sep 17 00:00:00 2001
-From: Gregory Norton <gregory@serenade.local>
+From: Gregory Norton <gregory.norton@me.com>
 Date: Fri, 18 Sep 2026 20:06:47 -0400
 Subject: [PATCH 06/11] LibCore: Remap /res/* for directory iteration and raw
  opens

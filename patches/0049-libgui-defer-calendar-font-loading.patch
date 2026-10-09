@@ -1,5 +1,5 @@
 From e70f3fb93ac114bef66de25406a3babf46d33df5 Mon Sep 17 00:00:00 2001
-From: Gregory Norton <gregory@serenade.local>
+From: Gregory Norton <gregory.norton@me.com>
 Date: Wed, 16 Sep 2026 06:16:43 -0400
 Subject: [PATCH] LibGUI: Defer Calendar font loading to first use
 

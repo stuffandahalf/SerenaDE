@@ -1,5 +1,5 @@
 From 333ab1e3c19c301866796f066960487c02d7bcd9 Mon Sep 17 00:00:00 2001
-From: Gregory Norton <gregory@serenade.local>
+From: Gregory Norton <gregory.norton@me.com>
 Date: Fri, 18 Sep 2026 20:06:46 -0400
 Subject: [PATCH 04/11] CharacterMap+DisplaySettings+FontEditor+ThemeEditor:
  GML include path

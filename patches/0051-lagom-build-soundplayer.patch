@@ -1,5 +1,5 @@
 From 2bedd2cd72efb5951391c0b8c85e50fd0abb5d68 Mon Sep 17 00:00:00 2001
-From: Gregory Norton <gregory@serenade.local>
+From: Gregory Norton <gregory.norton@me.com>
 Date: Wed, 16 Sep 2026 21:00:07 -0400
 Subject: [PATCH] Lagom: Build SoundPlayer on host
 

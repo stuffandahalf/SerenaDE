@@ -1,5 +1,5 @@
 From ea3d1cf5dff6b5c01ff08f12b4535f6cc73b5e67 Mon Sep 17 00:00:00 2001
-From: Gregory Norton <gregory@serenade.local>
+From: Gregory Norton <gregory.norton@me.com>
 Date: Thu, 03 Sep 2026 00:00:00 +0000
 Subject: [PATCH 20/21] Desktop/Taskbar: Host-overridable app dir and null-icon guard
 

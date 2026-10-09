@@ -1,5 +1,5 @@
 From 5e275341aa3d9f6eaec8502167abc0de0fd03993 Mon Sep 17 00:00:00 2001
-From: Gregory Norton <greg@serenityos.org>
+From: Gregory Norton <gregory.norton@me.com>
 Date: Thu, 8 Oct 2026 03:46:28 -0400
 Subject: [PATCH 4/4] LibELF: Tolerate unknown program header types in host
  builds

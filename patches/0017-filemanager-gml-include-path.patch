@@ -1,5 +1,5 @@
 From 63427f5783341f60e1ce9b2522b7b61b26577351 Mon Sep 17 00:00:00 2001
-From: Gregory Norton <gregory@serenade.local>
+From: Gregory Norton <gregory.norton@me.com>
 Date: Wed, 02 Sep 2026 00:00:00 +0000
 Subject: [PATCH 17/18] FileManager: Expose the binary Userland include for GML headers
 

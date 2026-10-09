@@ -1,5 +1,5 @@
 From 9286fc91954654e779e292aff147f6f1d9aad856 Mon Sep 17 00:00:00 2001
-From: Gregory Norton <gregory@serenade.local>
+From: Gregory Norton <gregory.norton@me.com>
 Date: Thu, 03 Sep 2026 00:00:00 +0000
 Subject: [PATCH 19/21] Lagom/WindowServer: Build the Taskbar on host systems
 

@@ -1,5 +1,5 @@
 From b467b2d602b5accb6144010b925fde051bdf9df2 Mon Sep 17 00:00:00 2001
-From: Gregory Norton <greg@serenityos.org>
+From: Gregory Norton <gregory.norton@me.com>
 Date: Thu, 8 Oct 2026 03:46:28 -0400
 Subject: [PATCH 2/4] LibDebug: Drive DebugSession through host ptrace on Linux
 

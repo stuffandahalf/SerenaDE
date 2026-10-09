@@ -1,5 +1,5 @@
 From c21c181761bce92624456f96e0677697811f1379 Mon Sep 17 00:00:00 2001
-From: Gregory Norton <gregory@serenade.local>
+From: Gregory Norton <gregory.norton@me.com>
 Date: Fri, 18 Sep 2026 20:06:47 -0400
 Subject: [PATCH 10/11] Profiler: Gate live profiling to Serenity
 

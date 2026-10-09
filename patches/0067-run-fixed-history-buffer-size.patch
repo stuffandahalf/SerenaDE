@@ -1,5 +1,5 @@
 From 4cd36e9f7b0b729a13f105f6628dd9eac20dcda4 Mon Sep 17 00:00:00 2001
-From: Gregory Norton <gregory@serenade.local>
+From: Gregory Norton <gregory.norton@me.com>
 Date: Fri, 18 Sep 2026 20:06:47 -0400
 Subject: [PATCH 11/11] Run: Use a fixed history-line buffer size
 

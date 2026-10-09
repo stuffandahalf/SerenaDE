@@ -1,5 +1,5 @@
 From 438cbb4aaab69c1fc88af310bcbb74f76d339070 Mon Sep 17 00:00:00 2001
-From: Gregory Norton <gregory@serenade.local>
+From: Gregory Norton <gregory.norton@me.com>
 Date: Fri, 18 Sep 2026 20:06:46 -0400
 Subject: [PATCH 02/11] LibDebug: Build on host by gating the live-debugging
  surface

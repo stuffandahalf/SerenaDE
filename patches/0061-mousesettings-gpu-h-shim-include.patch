@@ -1,5 +1,5 @@
 From 0a9c9fba2fbf38508f551266b7ea51ed562dbb13 Mon Sep 17 00:00:00 2001
-From: Gregory Norton <gregory@serenade.local>
+From: Gregory Norton <gregory.norton@me.com>
 Date: Fri, 18 Sep 2026 20:06:47 -0400
 Subject: [PATCH 05/11] MouseSettings: Point at the host gpu.h shim
 

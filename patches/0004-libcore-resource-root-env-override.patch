@@ -1,5 +1,5 @@
 From 78e4774bc5d865758b269f9de031236832ca3f18 Mon Sep 17 00:00:00 2001
-From: Gregory Norton <gregory@serenade.local>
+From: Gregory Norton <gregory.norton@me.com>
 Date: Sat, 30 Aug 2026 00:00:00 +0000
 Subject: [PATCH 4/11] LibCore: Allow overriding the resource root via $SERENITY_RES
 

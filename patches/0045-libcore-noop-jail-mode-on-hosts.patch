@@ -1,5 +1,5 @@
 From ed4534f35cdab7a8173d6754f05ee517ae2e2c4b Mon Sep 17 00:00:00 2001
-From: Gregory Norton <gregory@serenade.local>
+From: Gregory Norton <gregory.norton@me.com>
 Date: Wed, 16 Sep 2026 01:59:48 -0400
 Subject: [PATCH 3/6] LibCore: No-op the jail mode entry points on host systems
 

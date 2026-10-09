@@ -1,5 +1,5 @@
 From beb860694e8598ec125ee7cac148a1856e98fa69 Mon Sep 17 00:00:00 2001
-From: Gregory Norton <gregory@serenade.local>
+From: Gregory Norton <gregory.norton@me.com>
 Date: Wed, 02 Sep 2026 00:00:00 +0000
 Subject: [PATCH 15/18] Terminal: Tolerate hosts without utmp and procfs children
 

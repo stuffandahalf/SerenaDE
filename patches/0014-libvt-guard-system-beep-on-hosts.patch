@@ -1,5 +1,5 @@
 From 0e28533942f1c8b47a0c5e15168d0c8bb238fad7 Mon Sep 17 00:00:00 2001
-From: Gregory Norton <gregory@serenade.local>
+From: Gregory Norton <gregory.norton@me.com>
 Date: Wed, 02 Sep 2026 00:00:00 +0000
 Subject: [PATCH 14/18] LibVT: Guard Core::System::beep() to Serenity only
 

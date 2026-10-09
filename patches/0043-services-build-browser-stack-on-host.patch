@@ -1,5 +1,5 @@
 From 07c5893701477f8a746e96d306137748153d3337 Mon Sep 17 00:00:00 2001
-From: Gregory Norton <gregory@serenade.local>
+From: Gregory Norton <gregory.norton@me.com>
 Date: Wed, 16 Sep 2026 01:58:16 -0400
 Subject: [PATCH 1/6] Services: Build ImageDecoder, RequestServer, SQLServer
  and WebContent on host

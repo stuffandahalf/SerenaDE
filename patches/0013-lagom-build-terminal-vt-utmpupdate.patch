@@ -1,5 +1,5 @@
 From 85a5160d95461a44470d3bcd8a876253fee60a7c Mon Sep 17 00:00:00 2001
-From: Gregory Norton <gregory@serenade.local>
+From: Gregory Norton <gregory.norton@me.com>
 Date: Wed, 02 Sep 2026 00:00:00 +0000
 Subject: [PATCH 13/18] Lagom: Build Terminal, its VT library, and utmpupdate on hosts
 

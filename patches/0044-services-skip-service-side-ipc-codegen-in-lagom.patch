@@ -1,5 +1,5 @@
 From 52e2bc6cf57308a36f350450a9bb6f4f5f20473b Mon Sep 17 00:00:00 2001
-From: Gregory Norton <gregory@serenade.local>
+From: Gregory Norton <gregory.norton@me.com>
 Date: Wed, 16 Sep 2026 01:59:48 -0400
 Subject: [PATCH 2/6] Services: Skip service-side IPC codegen in the Lagom
  build

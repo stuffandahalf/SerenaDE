@@ -1,5 +1,5 @@
 From c0606d6fc1c1dc36c7855a0300124d5acb925b03 Mon Sep 17 00:00:00 2001
-From: Gregory Norton <gregory@serenade.local>
+From: Gregory Norton <gregory.norton@me.com>
 Date: Thu, 17 Sep 2026 12:12:04 -0400
 Subject: [PATCH] Lagom: Build TextEditor on host
 

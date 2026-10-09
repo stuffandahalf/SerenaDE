@@ -1,5 +1,5 @@
 From 8b2f6d4e0c3a5f719b2d4e6f8a0c2b4d6e8f0a2c Mon Sep 17 00:00:00 2001
-From: Gregory Norton <gregory@serenade.local>
+From: Gregory Norton <gregory.norton@me.com>
 Date: Mon, 31 Aug 2026 00:00:00 +0000
 Subject: [PATCH 11/11] AK: Drop unusable constexpr from seconds_since_epoch_to_year
 

@@ -1,5 +1,5 @@
 From a9c8df924b6a18e188d21797ddc95ce06bff8215 Mon Sep 17 00:00:00 2001
-From: Gregory Norton <gregory@serenade.local>
+From: Gregory Norton <gregory.norton@me.com>
 Date: Tue, 08 Sep 2026 00:00:00 +0000
 Subject: [PATCH 37/37] Tests: Skip permission-sensitive cases when running as root
 
