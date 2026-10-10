@@ -33,7 +33,7 @@ index 234ba95447..774da08f60 100644
 +        if (!m_dir && open_error == ENOENT && m_path.starts_with("/sys/kernel/"sv)) {
 +            // On host systems (Lagom builds) there is no Serenity kernel; the
 +            // launcher's sysfs shim serves /sys/kernel data from $SERENITY_SYS.
-+            if (auto const* sys_root = std::getenv("SERENITY_SYS")) {
++            if (auto const* sys_root = getenv("SERENITY_SYS")) {
 +                auto remapped = ByteString::formatted("{}/{}", sys_root, m_path.substring_view(12));
 +                m_dir = opendir(remapped.characters());
 +                if (m_dir)
@@ -55,7 +55,7 @@ index 15b9d6f41a..10d7668346 100644
 +        && filename.starts_with("/sys/kernel/"sv) && has_flag(m_mode, OpenMode::Read)) {
 +        // On host systems (Lagom builds) there is no Serenity kernel; the
 +        // launcher's sysfs shim serves /sys/kernel data from $SERENITY_SYS.
-+        if (auto const* sys_root = std::getenv("SERENITY_SYS")) {
++        if (auto const* sys_root = getenv("SERENITY_SYS")) {
 +            auto remapped = TRY(String::formatted("{}/{}", sys_root, filename.substring_view(12)));
 +            result = System::open(remapped, flags, permissions);
 +        }
@@ -75,7 +75,7 @@ index 1f06e24a3c..58c28c37a2 100644
 +        && path.starts_with("/sys/kernel/"sv) && (options & O_ACCMODE) == O_RDONLY) {
 +        // On host systems (Lagom builds) there is no Serenity kernel; the
 +        // launcher's sysfs shim serves /sys/kernel data from $SERENITY_SYS.
-+        if (auto const* sys_root = std::getenv("SERENITY_SYS")) {
++        if (auto const* sys_root = getenv("SERENITY_SYS")) {
 +            auto remapped = ByteString::formatted("{}/{}", sys_root, path.substring_view(12));
 +            rc = ::openat(fd, remapped.characters(), options, mode);
 +        }

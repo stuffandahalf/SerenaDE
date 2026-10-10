@@ -152,3 +152,12 @@ jobs:
           git add ci-freebsd-ctest.log
           git commit -m "ci: FreeBSD ctest output (diagnostics, do not merge)"
           git push --force origin "HEAD:refs/heads/ci-diagnostics" || echo "NOTE: branch push failed (annotations still posted)"
+
+      # continue-on-error above lets the diagnostics step run, but it also makes the
+      # job report green when the VM build/test fails. Re-assert the failure here so
+      # CI is honest.
+      - name: Fail the job if the VM run failed
+        if: steps.freebsd-vm.outcome == 'failure'
+        run: |
+          echo "The FreeBSD VM build/test failed (see annotations and the ci-diagnostics branch)."
+          exit 1

@@ -36,7 +36,7 @@ index 7e4acb8398..234ba95447 100644
 +        if (open_error == ENOENT && m_path.starts_with("/res/"sv)) {
 +            // On host systems (Lagom builds) /res does not exist; $SERENITY_RES
 +            // points at the resource root instead. Same remap as Core::File.
-+            if (auto const* res_root = std::getenv("SERENITY_RES")) {
++            if (auto const* res_root = getenv("SERENITY_RES")) {
 +                auto remapped = ByteString::formatted("{}/{}", res_root, m_path.substring_view(5));
 +                m_dir = opendir(remapped.characters());
 +                if (m_dir)
@@ -70,7 +70,7 @@ index cab45abdd8..1f06e24a3c 100644
 +        // points at the resource root instead. This also covers callers that
 +        // open through raw System::open (e.g. Core::Directory), which bypass
 +        // Core::File's own remap.
-+        if (auto const* res_root = std::getenv("SERENITY_RES")) {
++        if (auto const* res_root = getenv("SERENITY_RES")) {
 +            auto remapped = ByteString::formatted("{}/{}", res_root, path.substring_view(5));
 +            rc = ::openat(fd, remapped.characters(), options, mode);
 +        }

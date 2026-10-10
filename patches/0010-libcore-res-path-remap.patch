@@ -38,7 +38,7 @@ index bcfb18a78e..15b9d6f41a 100644
 +        && filename.starts_with("/res/"sv) && has_flag(m_mode, OpenMode::Read) && !has_flag(m_mode, OpenMode::Write)) {
 +        // On host systems (Lagom builds) /res does not exist; $SERENITY_RES
 +        // points at the resource root instead (see ResourceImplementation).
-+        if (auto const* res_root = std::getenv("SERENITY_RES")) {
++        if (auto const* res_root = getenv("SERENITY_RES")) {
 +            auto remapped = TRY(String::formatted("{}/{}", res_root, filename.substring_view(5)));
 +            result = System::open(remapped, flags, permissions);
 +        }

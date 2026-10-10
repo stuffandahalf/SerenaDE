@@ -484,7 +484,10 @@ ld.lld), and runs ctest serially minus `app-weather-render` (no Jakt toolchain i
 `/proc/<pid>/maps`, so LibDebug/Debugger/CrashReporter compile on BSDs with graceful stubs. The
 launcher's `--expect-window` check now polls screenshots until the threshold is met (up to 10 retries,
 1s apart) — this structurally fixes the one-off CI flake in `m4-taskbar-launch` and gives slow VMs the
-timing headroom the BSD matrix needs. Local serial suite green (298 run; WasmParser skipped-as-pass,
+timing headroom the BSD matrix needs. First BSD quirk from the initial FreeBSD run: glibc's
+`std::getenv` does not exist on FreeBSD, so patches 0004/0005/0010/0062/0073 now use plain `getenv`;
+and the vmactions job gained an explicit failure step because `continue-on-error` was hiding VM
+failures behind a green job. Local serial suite green (298 run; WasmParser skipped-as-pass,
 TestCommonmark disabled). Next M8 subtasks: get FreeBSD ctest fully green in the VM, then NetBSD and
 OpenBSD audits/builds.
 

@@ -14,16 +14,25 @@ set -e
 debugger="$1"; debugee="$2"; logdir="$3"
 
 out="$logdir/debugger-attach.log"
-rm -f "$out"
 
-"$debugger" "$debugee" </dev/null >"$out" 2>&1
-
-if grep -q "Program is stopped at" "$out"; then
-    echo "Debugger attached and reported its first stop:"
+# Attach is a fork+ptrace sequence that can race on loaded CI runners, so retry a
+# few times. Every attempt's output is printed on failure: an earlier version used
+# bare `set -e` with the Debugger output only in the log file, which made a silent
+# non-zero exit look like "no log output" in CI.
+attempt=1
+while [ "$attempt" -le 3 ]; do
+    rm -f "$out"
+    status=0
+    "$debugger" "$debugee" </dev/null >"$out" 2>&1 || status=$?
+    if grep -q "Program is stopped at" "$out"; then
+        echo "Debugger attached and reported its first stop (attempt $attempt):"
+        cat "$out"
+        exit 0
+    fi
+    echo "Debugger attempt $attempt exited with status $status; output was:"
     cat "$out"
-    exit 0
-fi
+    attempt=$((attempt + 1))
+done
 
-echo "Debugger did not report a stop; output was:"
-cat "$out"
+echo "Debugger did not report a stop after 3 attempts"
 exit 1

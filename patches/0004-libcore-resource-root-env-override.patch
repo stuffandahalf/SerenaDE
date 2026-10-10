@@ -29,7 +29,7 @@ index 2834124ace..5d5f27f934 100644
 +    if (!s_the) {
 +        // On host systems (Lagom builds) /res does not exist; allow overriding
 +        // the resource root, e.g. to point at a Serenity checkout's Base/res.
-+        if (auto const* res_root = std::getenv("SERENITY_RES"))
++        if (auto const* res_root = getenv("SERENITY_RES"))
 +            install(make<ResourceImplementationFile>(String::from_utf8_with_replacement_character(StringView(res_root, std::strlen(res_root)))));
 +        else
 +            install(make<ResourceImplementationFile>("/res"_string));

@@ -37,6 +37,21 @@ Living tracker. Update in the same commit as the work it describes, and keep
 Record discoveries here as they happen (surprising `#ifdef` gaps, API quirks,
  decisions with trade-offs). Newest first.
 
+  - 2026-10-09 — **BSD quirk: `std::getenv` is a glibc-ism.** The FreeBSD VM build died early in
+    LibCoreMinimal's `System.cpp`: "no member named 'getenv' in namespace 'std'". glibc drags
+    `getenv` into `std` from `<stdlib.h>`; FreeBSD's libc does not. All five patches that read
+    `$SERENITY_RES`/`$SERENITY_SYS` (0004, 0005, 0010, 0062, 0073) now call plain `getenv` — valid
+    on Serenity LibC, glibc and the BSDs alike. Fixed in-place inside those patch files (no new
+    patch number), re-verified from a pristine pin: all 79 apply cleanly to a byte-identical tree.
+
+  - 2026-10-09 — **CI gotcha: vmactions `continue-on-error` masks build failures.** The FreeBSD job
+    reported *green* even though the VM step failed at `[61/4532]`: `continue-on-error: true` lets
+    the step fail without failing the job (so the diagnostics step can run). A final "Fail the job
+    if the VM run failed" step now re-asserts the outcome. Related: `debugger-attach.sh`'s `set -e`
+    plus Debugger output redirected to a log file meant a silent non-zero exit produced *zero*
+    stdout in CI — the script now retries 3 times and prints the full Debugger output on every
+    failed attempt.
+
   - 2026-10-09 — **M8 kickoff: FreeBSD CI job returns + `--expect-window` polling.** The vmactions
     `build-freebsd` job (dropped in `7ebcda8`) is back, running the suite serially minus two known
     Linux-only tests: `app-weather-render` (no Jakt toolchain built in the VM) and `debugger-attach`

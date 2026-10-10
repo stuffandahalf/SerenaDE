@@ -115,7 +115,7 @@ index 0000000000..e7e4b46fa5
 +// pointed to by $SERENITY_RES when running on a host system (Lagom build).
 +inline ByteString res_root()
 +{
-+    if (auto const* root = std::getenv("SERENITY_RES"))
++    if (auto const* root = getenv("SERENITY_RES"))
 +        return ByteString(root);
 +    return "/res"sv;
 +}
