@@ -1,0 +1,34 @@
+From 8ae60b08b5dcf9adef42fd91c01c92680e59b95d Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory@serenade.local>
+Date: Sat, 10 Oct 2026 00:30:55 -0400
+Subject: [PATCH] NetworkSettings: Declare environ for hosts whose unistd.h
+ omits it
+
+NetworkSettingsWidget.cpp passes the environ global to posix_spawn (pre-existing
+code). glibc's <unistd.h> declares it, but FreeBSD's does not, so the build fails
+with 'use of undeclared identifier environ'. Declare it explicitly, matching
+LibCore/System.cpp and FileManager's DirectoryView.cpp (patch 0032); on
+glibc/Serenity this is a compatible redeclaration.
+---
+ .../Applications/NetworkSettings/NetworkSettingsWidget.cpp   | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/Userland/Applications/NetworkSettings/NetworkSettingsWidget.cpp b/Userland/Applications/NetworkSettings/NetworkSettingsWidget.cpp
+index 9e775d2f27..aa7b0c4a09 100644
+--- a/Userland/Applications/NetworkSettings/NetworkSettingsWidget.cpp
++++ b/Userland/Applications/NetworkSettings/NetworkSettingsWidget.cpp
+@@ -21,6 +21,11 @@
+ #include <LibGUI/TextBox.h>
+ #include <unistd.h>
+ 
++// environ is not declared by <unistd.h> on every host (notably FreeBSD); declare it explicitly,
++// matching LibCore/System.cpp and FileManager's DirectoryView.cpp. On glibc/Serenity this is a
++// compatible redeclaration of the header-provided global.
++extern char** environ;
++
+ namespace NetworkSettings {
+ 
+ static int netmask_to_cidr(IPv4Address const& address)
+-- 
+2.56.0
+

@@ -37,6 +37,14 @@ Living tracker. Update in the same commit as the work it describes, and keep
 Record discoveries here as they happen (surprising `#ifdef` gaps, API quirks,
  decisions with trade-offs). Newest first.
 
+  - 2026-10-10 — **FreeBSD round 2: `environ` needs an explicit declaration (patch 0080).** Once the
+    getenv fix landed, the FreeBSD build got to NetworkSettings and failed with "use of undeclared
+    identifier 'environ'" in its `posix_spawn` call. Same story as patch 0032/FileManager: glibc's
+    `<unistd.h>` declares the `environ` global, FreeBSD's does not. Patch 0080 re-declares it
+    (`extern char** environ;`) in NetworkSettingsWidget.cpp. Escalator has the same pattern but is
+    not part of the Lagom app list, so it needs no patch — a reminder to check
+    `Meta/Lagom/CMakeLists.txt`'s `add_serenity_subdirectory` list before auditing an app.
+
   - 2026-10-09 — **BSD quirk: `std::getenv` is a glibc-ism.** The FreeBSD VM build died early in
     LibCoreMinimal's `System.cpp`: "no member named 'getenv' in namespace 'std'". glibc drags
     `getenv` into `std` from `<stdlib.h>`; FreeBSD's libc does not. All five patches that read
