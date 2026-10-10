@@ -37,6 +37,14 @@ Living tracker. Update in the same commit as the work it describes, and keep
 Record discoveries here as they happen (surprising `#ifdef` gaps, API quirks,
  decisions with trade-offs). Newest first.
 
+  - 2026-10-10 — **Launcher shim: three BSD compile fixes (src-side, no patch number).** The FreeBSD VM
+    build reached `serenade-launcher` and died on glibc-only APIs in the `/sys/kernel` shim:
+    `_SC_AVPHYS_PAGES` (glibc extension; now `#ifdef`-guarded with a `_SC_PHYS_PAGES` fallback),
+    `statvfs.f_inodes/f_ifree` (glibc extensions that don't exist on FreeBSD — POSIX's
+    `f_files/f_ffree` work everywhere; the earlier `#ifdef __linux__` branch had it backwards), and
+    `sockaddr_in`, which needs `<netinet/in.h>` on FreeBSD (`<arpa/inet.h>` does not pull it in).
+    Audited the rest of `src/` for `epoll`/`eventfd`/`timerfd`/`madvise` — clean.
+
   - 2026-10-10 — **FreeBSD round 2: `environ` needs an explicit declaration (patch 0080).** Once the
     getenv fix landed, the FreeBSD build got to NetworkSettings and failed with "use of undeclared
     identifier 'environ'" in its `posix_spawn` call. Same story as patch 0032/FileManager: glibc's

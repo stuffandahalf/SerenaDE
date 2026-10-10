@@ -54,6 +54,7 @@
 #include <dirent.h>
 #include <fcntl.h>
 #include <ifaddrs.h>
+#include <netinet/in.h>  // sockaddr_in (arpa/inet.h does not pull it in on FreeBSD)
 #include <sys/select.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -1102,7 +1103,11 @@ void write_sysfs_data(const char* dir)
 
     // memstat: page counts (MemoryStatsWidget multiplies them by 4096).
     unsigned long long phys_pages = (unsigned long long)sysconf(_SC_PHYS_PAGES);
-    unsigned long long avail_pages = (unsigned long long)sysconf(_SC_AVPHYS_PAGES);
+    // _SC_AVPHYS_PAGES is a glibc extension; the BSDs only define _SC_PHYS_PAGES.
+    unsigned long long avail_pages = phys_pages;
+#ifdef _SC_AVPHYS_PAGES
+    avail_pages = (unsigned long long)sysconf(_SC_AVPHYS_PAGES);
+#endif
     if (phys_pages == 0)
         phys_pages = 1; // GraphWidget divides by the total; never zero.
     if (avail_pages > phys_pages)
@@ -1134,16 +1139,10 @@ void write_sysfs_data(const char* dir)
         home = ".";
     struct statvfs sf {};
     if (statvfs(home, &sf) == 0) {
-        // Inode counters are named differently on Linux vs. the BSDs.
-        unsigned long total_inodes = 0;
-        unsigned long free_inodes = 0;
-#ifdef __linux__
-        total_inodes = (unsigned long)sf.f_files;
-        free_inodes = (unsigned long)sf.f_ffree;
-#else
-        total_inodes = (unsigned long)sf.f_inodes;
-        free_inodes = (unsigned long)sf.f_ifree;
-#endif
+        // POSIX names f_files/f_ffree exist on glibc and the BSDs alike; f_inodes/f_ifree
+        // are glibc-only extensions that do not compile on FreeBSD.
+        unsigned long total_inodes = (unsigned long)sf.f_files;
+        unsigned long free_inodes = (unsigned long)sf.f_ffree;
         snprintf(path, sizeof(path), "%s/df", dir);
         out = fopen(path, "w");
         fprintf(out, "[{\"mount_point\":");
