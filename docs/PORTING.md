@@ -37,6 +37,14 @@ Living tracker. Update in the same commit as the work it describes, and keep
 Record discoveries here as they happen (surprising `#ifdef` gaps, API quirks,
  decisions with trade-offs). Newest first.
 
+  - 2026-10-10 — **FreeBSD round 3: Debugger links on BSDs (patch 0076 amended in place).** The build
+    died at `bin/Debugger` with every `Debug::DebugSession` symbol undefined: patch 0076 only added
+    `DebugSession.cpp` to LibDebug's sources for SerenityOS/Linux, but patch 0079 had already made the
+    file compile everywhere with stubbed ptrace calls. Excluding it on BSDs left Debugger (added to
+    Lagom in patch 0077) without its symbols. The gating is now unconditional — BSD hosts get the
+    graceful stubs until a real ptrace backend lands — so Debugger builds and links on FreeBSD;
+    `debugger-attach` stays excluded from the FreeBSD ctest since attach/step are no-ops there.
+
   - 2026-10-10 — **Launcher shim: three BSD compile fixes (src-side, no patch number).** The FreeBSD VM
     build reached `serenade-launcher` and died on glibc-only APIs in the `/sys/kernel` shim:
     `_SC_AVPHYS_PAGES` (glibc extension; now `#ifdef`-guarded with a `_SC_PHYS_PAGES` fallback),

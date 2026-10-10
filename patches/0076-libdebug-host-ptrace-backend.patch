@@ -1,27 +1,25 @@
-From b467b2d602b5accb6144010b925fde051bdf9df2 Mon Sep 17 00:00:00 2001
+From 4d09d238fc0c9b7722877c341f354b3764396c2a Mon Sep 17 00:00:00 2001
 From: Gregory Norton <gregory.norton@me.com>
 Date: Thu, 8 Oct 2026 03:46:28 -0400
-Subject: [PATCH 2/4] LibDebug: Drive DebugSession through host ptrace on Linux
+Subject: [PATCH] LibDebug: Drive DebugSession through host ptrace on Linux
 
-Map Serenity's PT_* requests to the PTRACE_* equivalents, copy registers
-field-by-field from glibc's user_regs_struct (the layouts differ), parse
-loaded libraries from /proc/<pid>/maps instead of Serenity's vm API, and
-skip the PT_ATTACH round trip when the debuggee was already started with
-TRACEME. Watchpoints need x86 debug-register ptrace support that host
-kernels do not expose through this ABI, so they stay Serenity-only.
+Serenity's PT_* requests map to the PTRACE_* equivalents; registers are
+copied field-by-field from glibc's user_regs_struct, loaded libraries come
+from /proc/<pid>/maps, and watchpoints stay Serenity-only. Host quirks
+handled: glibc waitpid rejects WEXITED, maps contains non-ELF backing
+files, and library_at(ip) may be null for stripped libraries.
 
-glibc's waitpid does not accept the BSD-style WEXITED flag, so use plain
-waitpid on host builds (it reports exits too). Also guard Debugger against
-a null library_at(ip): host debuggees stop inside stripped libraries or
-anonymous memory where Serenity's loader breakpoint never lands.
+DebugSession.cpp is compiled on every platform (not just Linux): BSDs get
+stubbed ptrace calls until a real backend lands, so apps like Debugger
+still link against LibDebug.
 ---
  Userland/Applications/Debugger/main.cpp       |  17 +-
- Userland/Libraries/LibDebug/CMakeLists.txt    |  10 +-
+ Userland/Libraries/LibDebug/CMakeLists.txt    |  12 +-
  Userland/Libraries/LibDebug/DebugInfo.h       |   4 +-
  Userland/Libraries/LibDebug/DebugSession.cpp  | 224 ++++++++++++++++--
  Userland/Libraries/LibDebug/DebugSession.h    |  12 +-
  .../Libraries/LibDebug/ProcessInspector.h     |   6 +-
- 6 files changed, 224 insertions(+), 49 deletions(-)
+ 6 files changed, 224 insertions(+), 51 deletions(-)
 
 diff --git a/Userland/Applications/Debugger/main.cpp b/Userland/Applications/Debugger/main.cpp
 index 424f993449..636dfdb64a 100644
@@ -75,10 +73,10 @@ index 424f993449..636dfdb64a 100644
                      in_step_line = true;
                      success = true;
 diff --git a/Userland/Libraries/LibDebug/CMakeLists.txt b/Userland/Libraries/LibDebug/CMakeLists.txt
-index cac528f1ff..c22fed68c8 100644
+index cac528f1ff..d55277d925 100644
 --- a/Userland/Libraries/LibDebug/CMakeLists.txt
 +++ b/Userland/Libraries/LibDebug/CMakeLists.txt
-@@ -10,10 +10,12 @@ set(SOURCES
+@@ -10,12 +10,12 @@ set(SOURCES
      ProcessInspector.cpp
  )
  
@@ -86,15 +84,17 @@ index cac528f1ff..c22fed68c8 100644
 -    # DebugSession drives a live debugee through Serenity's ptrace ABI, which
 -    # has no host equivalent. The rest of the library (DWARF/ELF reading and
 -    # symbolication) is fully portable and used by e.g. SystemMonitor.
-+if (SERENITYOS OR ${CMAKE_SYSTEM_NAME} MATCHES "Linux")
-+    # DebugSession drives a live debuggee through ptrace: Serenity's PT_* ABI
-+    # natively, Linux via the PTRACE_* equivalents. Watchpoints (x86 debug
-+    # registers) are Serenity-only; BSDs have no backend yet (M8). The rest of
-+    # the library (DWARF/ELF reading and symbolication) is fully portable and
-+    # used by e.g. SystemMonitor.
-     list(APPEND SOURCES DebugSession.cpp)
- endif()
+-    list(APPEND SOURCES DebugSession.cpp)
+-endif()
++# DebugSession is compiled on every platform: Serenity uses its native PT_* ABI,
++# Linux the PTRACE_* equivalents, and BSDs get stubbed calls until a real backend
++# lands (M8). Compiling it everywhere keeps apps like Debugger linkable on BSDs;
++# the rest of the library (DWARF/ELF reading and symbolication) is fully portable
++# and used by e.g. SystemMonitor anyway.
++list(APPEND SOURCES DebugSession.cpp)
  
+ serenity_lib(LibDebug debug)
+ target_link_libraries(LibDebug PRIVATE LibCore LibELF LibFileSystem LibRegex)
 diff --git a/Userland/Libraries/LibDebug/DebugInfo.h b/Userland/Libraries/LibDebug/DebugInfo.h
 index 08ae615de6..cccac19203 100644
 --- a/Userland/Libraries/LibDebug/DebugInfo.h
