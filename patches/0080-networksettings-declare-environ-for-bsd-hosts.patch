@@ -1,5 +1,5 @@
 From 8ae60b08b5dcf9adef42fd91c01c92680e59b95d Mon Sep 17 00:00:00 2001
-From: Gregory Norton <gregory@serenade.local>
+From: Gregory Norton <gregory.norton@me.com>
 Date: Sat, 10 Oct 2026 00:30:55 -0400
 Subject: [PATCH] NetworkSettings: Declare environ for hosts whose unistd.h
  omits it

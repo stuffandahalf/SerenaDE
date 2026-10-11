@@ -1,5 +1,5 @@
-From ebed9c71c49303707e82079912b1f4f1381be1b5 Mon Sep 17 00:00:00 2001
-From: Gregory Norton <gregory@serenade.local>
+From a696f9b6d69dc6b24471dabb8649735703712044 Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory.norton@me.com>
 Date: Fri, 9 Oct 2026 18:23:09 -0400
 Subject: [PATCH] LibDebug: Restrict the host ptrace backend to Linux
 
@@ -8,12 +8,15 @@ BSDs have ptrace but with different request semantics and register structs
 Gate the host DebugSession implementation behind AK_OS_LINUX so LibDebug,
 Debugger and CrashReporter still compile on FreeBSD/NetBSD/OpenBSD, with
 graceful stubs (attach returns nothing) elsewhere.
+
+The attach() body and set_registers() are fully guarded so the file also
+compiles under -Werror on hosts where the PT_* request names do not exist.
 ---
- Userland/Libraries/LibDebug/DebugSession.cpp | 61 ++++++++++++++++++--
- 1 file changed, 57 insertions(+), 4 deletions(-)
+ Userland/Libraries/LibDebug/DebugSession.cpp | 72 ++++++++++++++++++--
+ 1 file changed, 65 insertions(+), 7 deletions(-)
 
 diff --git a/Userland/Libraries/LibDebug/DebugSession.cpp b/Userland/Libraries/LibDebug/DebugSession.cpp
-index 30732a08da..5125d43c5c 100644
+index 30732a08da..23ed371c9f 100644
 --- a/Userland/Libraries/LibDebug/DebugSession.cpp
 +++ b/Userland/Libraries/LibDebug/DebugSession.cpp
 @@ -18,7 +18,7 @@
@@ -68,7 +71,7 @@ index 30732a08da..5125d43c5c 100644
  
          auto parts = command.split(' ');
          VERIFY(!parts.is_empty());
-@@ -164,6 +179,14 @@ OwnPtr<DebugSession> DebugSession::exec_and_attach(ByteString const& command,
+@@ -164,21 +179,31 @@ OwnPtr<DebugSession> DebugSession::exec_and_attach(ByteString const& command,
  
  OwnPtr<DebugSession> DebugSession::attach(pid_t pid, ByteString source_root, Function<void(float)> on_initialization_progress)
  {
@@ -80,10 +83,30 @@ index 30732a08da..5125d43c5c 100644
 +    return {};
 +#endif
 +
++#if defined(AK_OS_SERENITY) || defined(AK_OS_LINUX)
      if (ptrace(PT_ATTACH, pid, 0, 0) < 0) {
          perror("PT_ATTACH");
          return {};
-@@ -193,20 +216,31 @@ OwnPtr<DebugSession> DebugSession::attach(pid_t pid, ByteString source_root, Fun
+     }
+ 
+     int status = 0;
+-#ifdef AK_OS_SERENITY
++#  ifdef AK_OS_SERENITY
+     if (waitpid(pid, &status, WSTOPPED | WEXITED) != pid || !WIFSTOPPED(status)) {
+-#else
++#  else
+     // glibc's waitpid does not accept the BSD-style WEXITED flag.
+     if (waitpid(pid, &status, WSTOPPED) != pid || !WIFSTOPPED(status)) {
+-#endif
++#  endif
+         perror("waitpid");
+         return {};
+     }
++#endif
+ 
+     auto debug_session = adopt_own(*new DebugSession(pid, source_root, move(on_initialization_progress)));
+     // At this point, libraries should have been loaded
+@@ -193,20 +218,31 @@ OwnPtr<DebugSession> DebugSession::attach(pid_t pid, ByteString source_root, Fun
  
  bool DebugSession::poke(FlatPtr address, FlatPtr data)
  {
@@ -115,7 +138,7 @@ index 30732a08da..5125d43c5c 100644
  }
  
  bool DebugSession::poke_debug(u32 register_index, FlatPtr data) const
-@@ -389,7 +423,7 @@ PtraceRegisters DebugSession::get_registers() const
+@@ -389,7 +425,7 @@ PtraceRegisters DebugSession::get_registers() const
          perror("PT_GETREGS");
          VERIFY_NOT_REACHED();
      }
@@ -124,7 +147,15 @@ index 30732a08da..5125d43c5c 100644
      // Copy field by field rather than bit-casting: glibc's user_regs_struct is
      // not laid out like Serenity's __mcontext.
      struct user_regs_struct host_regs {};
-@@ -432,7 +466,7 @@ void DebugSession::set_registers(PtraceRegisters const& regs)
+@@ -427,12 +463,15 @@ PtraceRegisters DebugSession::get_registers() const
+ 
+ void DebugSession::set_registers(PtraceRegisters const& regs)
+ {
++#if !defined(AK_OS_SERENITY) && !defined(AK_OS_LINUX)
++    (void)regs; // No backend: registers are never set on this host.
++#endif
+ #ifdef AK_OS_SERENITY
+     if (ptrace(PT_SETREGS, m_debuggee_pid, bit_cast<void*>(&regs), 0) < 0) {
          perror("PT_SETREGS");
          VERIFY_NOT_REACHED();
      }
@@ -133,7 +164,7 @@ index 30732a08da..5125d43c5c 100644
      struct user_regs_struct host_regs {};
      host_regs.rax = regs.rax;
      host_regs.rcx = regs.rcx;
-@@ -467,15 +501,20 @@ void DebugSession::set_registers(PtraceRegisters const& regs)
+@@ -467,15 +506,20 @@ void DebugSession::set_registers(PtraceRegisters const& regs)
  
  void DebugSession::continue_debuggee(ContinueType type)
  {
@@ -154,7 +185,7 @@ index 30732a08da..5125d43c5c 100644
      continue_debuggee(type);
      int wstatus = 0;
  #ifdef AK_OS_SERENITY
-@@ -489,10 +528,16 @@ int DebugSession::continue_debuggee_and_wait(ContinueType type)
+@@ -489,10 +533,16 @@ int DebugSession::continue_debuggee_and_wait(ContinueType type)
          VERIFY_NOT_REACHED();
      }
      return wstatus;
@@ -171,7 +202,7 @@ index 30732a08da..5125d43c5c 100644
      if (ptrace(PT_SINGLESTEP, m_debuggee_pid, 0, 0) < 0) {
          perror("PT_SINGLESTEP");
          VERIFY_NOT_REACHED();
-@@ -518,7 +563,11 @@ FlatPtr DebugSession::single_step()
+@@ -518,7 +568,11 @@ FlatPtr DebugSession::single_step()
  #else
  #    error Unknown architecture
  #endif
@@ -183,7 +214,7 @@ index 30732a08da..5125d43c5c 100644
  }
  
  void DebugSession::detach()
-@@ -646,7 +695,7 @@ ErrorOr<void> DebugSession::update_loaded_libs()
+@@ -646,7 +700,7 @@ ErrorOr<void> DebugSession::update_loaded_libs()
          add_object(object_path.value(), entry.as_object().get_addr("address"sv).value_or(0));
          return IterationDecision::Continue;
      });
@@ -192,7 +223,7 @@ index 30732a08da..5125d43c5c 100644
      // Host systems expose the address space as the classic text maps format:
      //   <start>-<end> <perms> <offset> <major:minor> <inode> [path]
      auto file_name = TRY(String::formatted("/proc/{}/maps", m_debuggee_pid));
-@@ -678,6 +727,10 @@ ErrorOr<void> DebugSession::update_loaded_libs()
+@@ -678,6 +732,10 @@ ErrorOr<void> DebugSession::update_loaded_libs()
  
          add_object(move(path), base_address);
      }
