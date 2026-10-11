@@ -37,6 +37,19 @@ Living tracker. Update in the same commit as the work it describes, and keep
 Record discoveries here as they happen (surprising `#ifdef` gaps, API quirks,
  decisions with trade-offs). Newest first.
 
+  - 2026-10-11 — **Failure diagnostics for the FreeBSD ctest round (src-side, no patch).** The first
+    full FreeBSD ctest run surfaced two failures with no visible cause: `app-texteditor-open` (golden
+    mismatch, 78812/786432 pixels, max delta 255) and `crash-reporter-render` (no window at all,
+    fraction 0.000). Two diagnostic gaps hid the causes: the launcher captured the app's stderr into
+    `serenade-app.log` but never showed it, and vmactions only copies back files its `copyback:`
+    input lists — so `Build/ctest-full.log` never reached the host and the annotations step had
+    nothing to publish. Fixes: the launcher now dumps `serenade-app.log` and
+    `serenade-windowserver.log` (capped at 32 KiB each) on every failure path, golden comparisons
+    print the bounding box of differing pixels, and the FreeBSD VM step declares the copyback files.
+    Also confirmed along the way: fonts load from `Base/res/fonts` through the resource-root
+    override, so glyph rendering is OS-independent — the other four golden-compare tests passed on
+    FreeBSD, which rules out font/DPI drift and points at content or geometry specific to TextEditor.
+
   - 2026-10-11 — **ApplyPatches: reverse-check before forward-apply.** Re-running configure on an
     already-patched dev tree silently *duplicated* patch 0073's hunks in `LibCore`'s
     `DirIterator.cpp`, `File.cpp` and `System.cpp`: those files contain repeated context patterns,

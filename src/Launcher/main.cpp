@@ -251,6 +251,34 @@ int open_log_file(const char* log_dir, const char* name)
     return fd;
 }
 
+// Failure diagnostics: the app's stderr lands in serenade-app.log, which CI
+// cannot fetch by any other means (Actions logs need sign-in, and artifacts
+// are not uploaded). Dump it -- and WindowServer's log, which shows font,
+// window-geometry and compositor errors -- so a failing run explains itself
+// in the ctest output. Capped to keep ctest output readable.
+static void dump_failure_logs(char const* log_dir)
+{
+    char path[4096];
+    for (char const* name : { "serenade-app.log", "serenade-windowserver.log" }) {
+        snprintf(path, sizeof(path), "%s/%s", log_dir, name);
+        FILE* f = fopen(path, "r");
+        if (!f)
+            continue;
+        printf("serenade-launcher: --- %s ---\n", name);
+        char buf[4096];
+        size_t dumped = 0;
+        while (dumped < 32 * 1024 && fgets(buf, sizeof(buf), f)) {
+            size_t len = strlen(buf);
+            fwrite(buf, 1, len, stdout);
+            dumped += len;
+        }
+        if (dumped >= 32 * 1024)
+            printf("serenade-launcher: --- %s truncated at 32 KiB ---\n", name);
+        fclose(f);
+    }
+    fflush(stdout);
+}
+
 // Fork + exec a child that adopts the given listener socket(s) via
 // SOCKET_TAKEOVER (the same mechanism Serenity's SystemServer uses).
 pid_t spawn_with_takeover(const char* program, char const* const* argv, int log_fd,
@@ -831,6 +859,9 @@ bool compare_golden(const char* screenshot_path, const char* golden_path, int to
     double fraction = static_cast<double>(result.differing_pixels) / static_cast<double>(total);
     printf("serenade-launcher: golden comparison: %zu/%zu pixels differ (max delta %d, tolerance %d)\n",
         result.differing_pixels, total, result.max_channel_delta, tolerance);
+    if (result.differing_pixels > 0)
+        printf("serenade-launcher: diff bounding box: x %d..%d, y %d..%d\n",
+            result.diff_min_x, result.diff_max_x, result.diff_min_y, result.diff_max_y);
     // Same-machine rendering is deterministic; allow a tiny sliver for
     // anti-aliasing edge cases.
     return fraction <= 0.001;
@@ -1400,6 +1431,7 @@ int main(int argc, char** argv)
 
     if (!got_screenshot) {
         fprintf(stderr, "serenade-launcher: no screenshot produced at %s (see logs in %s)\n", options.screenshot_path, options.log_dir);
+        dump_failure_logs(options.log_dir);
         return 1;
     }
     printf("serenade-launcher: wrote %s\n", options.screenshot_path);
@@ -1415,11 +1447,13 @@ int main(int argc, char** argv)
         printf("serenade-launcher: expect-window: %.3f of pixels are non-background (min %.3f)\n", window_fraction, options.expect_window_min);
         if (window_fraction < options.expect_window_min) {
             fprintf(stderr, "serenade-launcher: no window appeared (non-background fraction %.3f < %.3f)\n", window_fraction, options.expect_window_min);
+            dump_failure_logs(options.log_dir);
             return 1;
         }
     } else if (options.golden_path) {
         if (!compare_golden(options.screenshot_path, options.golden_path, options.tolerance)) {
             fprintf(stderr, "serenade-launcher: screenshot does not match golden %s\n", options.golden_path);
+            dump_failure_logs(options.log_dir);
             return 1;
         }
         printf("serenade-launcher: screenshot matches golden %s\n", options.golden_path);

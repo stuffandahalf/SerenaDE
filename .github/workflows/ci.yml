@@ -94,6 +94,10 @@ jobs:
           release: "15" # newest stable line; gives the best shot at a recent-enough clang for C++26
           prepare: |
             pkg install -y bash cmake ninja git curl ca_root_nss pkgconf libX11 libXext coreutils llvm
+          copyback: |
+            Build/ctest-full.log
+            Build/serenade-app.log
+            Build/serenade-windowserver.log
           run: |
             set -e
             # Fetch the pinned Serenity source inside the VM (keep in sync with
@@ -131,7 +135,11 @@ jobs:
                 ctest --test-dir Build --output-on-failure \
                     -E "app-weather-render|debugger-attach" 2>&1 | tee "$GITHUB_WORKSPACE/Build/ctest-full.log"
             fi
-            exit "${PIPESTATUS[0]}"
+            ctest_rc="${PIPESTATUS[0]}"
+            # copyback above needs the files to exist; the launcher logs hold the
+            # last test's app/WindowServer stderr for the diagnostics step.
+            touch Build/ctest-full.log Build/serenade-app.log Build/serenade-windowserver.log
+            exit "$ctest_rc"
 
       - name: Publish FreeBSD ctest failure detail (annotations + ci-diagnostics branch)
         if: steps.freebsd-vm.outcome == 'failure'

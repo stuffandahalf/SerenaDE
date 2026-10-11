@@ -26,6 +26,12 @@ struct PngCompareResult {
     int golden_height { 0 };
     size_t differing_pixels { 0 };
     int max_channel_delta { 0 };
+    // Bounding box of differing pixels (inclusive; valid when differing_pixels > 0).
+    // Telling the CI log WHERE the render diverges usually pins the bug at a glance.
+    int diff_min_x { 0 };
+    int diff_max_x { -1 };
+    int diff_min_y { 0 };
+    int diff_max_y { -1 };
 };
 
 ErrorOr<NonnullRefPtr<Gfx::Bitmap>> load_png_bitmap(StringView path)
@@ -68,8 +74,22 @@ PngCompareResult compare_pngs(Gfx::Bitmap const& actual, Gfx::Bitmap const& gold
             }
             if (pixel_delta > result.max_channel_delta)
                 result.max_channel_delta = pixel_delta;
-            if (pixel_delta > tolerance)
+            if (pixel_delta > tolerance) {
                 ++result.differing_pixels;
+                if (result.diff_max_x < 0) {
+                    result.diff_min_x = result.diff_max_x = x;
+                    result.diff_min_y = result.diff_max_y = y;
+                } else {
+                    if (x < result.diff_min_x)
+                        result.diff_min_x = x;
+                    if (x > result.diff_max_x)
+                        result.diff_max_x = x;
+                    if (y < result.diff_min_y)
+                        result.diff_min_y = y;
+                    if (y > result.diff_max_y)
+                        result.diff_max_y = y;
+                }
+            }
         }
     }
     return result;
