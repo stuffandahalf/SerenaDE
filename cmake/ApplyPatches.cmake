@@ -10,6 +10,21 @@ list(SORT SERENADE_PATCHES)
 foreach(patch IN LISTS SERENADE_PATCHES)
     get_filename_component(patch_name ${patch} NAME)
 
+    # Check the reverse direction FIRST. On an already-patched dev tree every
+    # patch must be recognized as applied; some patches insert code into files
+    # with repeated context patterns (LibCore's sysfs remaps, for example),
+    # where a second forward apply would still succeed -- at a shifted
+    # location, silently duplicating the change and corrupting the tree.
+    execute_process(
+        COMMAND git apply --check -R ${patch}
+        WORKING_DIRECTORY ${SERENITY_SOURCE_DIR}
+        RESULT_VARIABLE rc
+    )
+    if(rc EQUAL 0)
+        message(STATUS "SerenaDE: ${patch_name} already applied, skipping")
+        continue()
+    endif()
+
     execute_process(
         COMMAND git apply --check ${patch}
         WORKING_DIRECTORY ${SERENITY_SOURCE_DIR}
@@ -25,17 +40,6 @@ foreach(patch IN LISTS SERENADE_PATCHES)
         if(NOT rc EQUAL 0)
             message(FATAL_ERROR "Failed to apply ${patch_name}")
         endif()
-        continue()
-    endif()
-
-    # Not applicable forward: is it already applied (dev tree with manual edits)?
-    execute_process(
-        COMMAND git apply --check -R ${patch}
-        WORKING_DIRECTORY ${SERENITY_SOURCE_DIR}
-        RESULT_VARIABLE rc
-    )
-    if(rc EQUAL 0)
-        message(STATUS "SerenaDE: ${patch_name} already applied, skipping")
         continue()
     endif()
 

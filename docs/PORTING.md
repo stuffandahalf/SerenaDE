@@ -37,6 +37,22 @@ Living tracker. Update in the same commit as the work it describes, and keep
 Record discoveries here as they happen (surprising `#ifdef` gaps, API quirks,
  decisions with trade-offs). Newest first.
 
+  - 2026-10-11 — **ApplyPatches: reverse-check before forward-apply.** Re-running configure on an
+    already-patched dev tree silently *duplicated* patch 0073's hunks in `LibCore`'s
+    `DirIterator.cpp`, `File.cpp` and `System.cpp`: those files contain repeated context patterns,
+    so a second forward apply still succeeds — at a shifted location. The script now tries
+    `git apply --check -R` first (already applied → skip) and only forward-applies patches that are
+    genuinely unapplied. Dev tree repaired and re-verified byte-identical against a pristine pin.
+
+  - 2026-10-11 — **FreeBSD round 4: finish gating DebugSession for -Werror hosts (patch 0079 amended
+    in place).** Compiling `DebugSession.cpp` on FreeBSD for the first time surfaced two leftovers:
+    the real body of `attach()` compiled past the stub and referenced the undeclared `PT_ATTACH`
+    (the ptrace block is now guarded like the other methods), and `set_registers()`'s parameter is
+    unused on backend-less hosts, which fails under `-Werror -Wunused-parameter` — Lagom builds with
+    `-Werror` via `Meta/CMake/common_compile_options.cmake`'s `-Wall -Wunused`, so every warning is
+    fatal. Also normalized the `From:` headers of patches 0079/0080, which had been created with the
+    Serenity checkout's local git identity instead of the global one.
+
   - 2026-10-10 — **FreeBSD round 3: Debugger links on BSDs (patch 0076 amended in place).** The build
     died at `bin/Debugger` with every `Debug::DebugSession` symbol undefined: patch 0076 only added
     `DebugSession.cpp` to LibDebug's sources for SerenityOS/Linux, but patch 0079 had already made the
