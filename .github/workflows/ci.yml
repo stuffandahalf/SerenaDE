@@ -98,6 +98,9 @@ jobs:
             Build/ctest-full.log
             Build/serenade-app.log
             Build/serenade-windowserver.log
+            Build/tests/app-texteditor.png
+            Build/tests/app-crashreporter.png
+            Build/tests/app-hexeditor.png
           run: |
             set -e
             # Fetch the pinned Serenity source inside the VM (keep in sync with
@@ -137,8 +140,10 @@ jobs:
             fi
             ctest_rc="${PIPESTATUS[0]}"
             # copyback above needs the files to exist; the launcher logs hold the
-            # last test's app/WindowServer stderr for the diagnostics step.
-            touch Build/ctest-full.log Build/serenade-app.log Build/serenade-windowserver.log
+            # last test's app/WindowServer stderr for the diagnostics step. The
+            # screenshots come back so the failing golden can be diffed locally.
+            touch Build/ctest-full.log Build/serenade-app.log Build/serenade-windowserver.log \
+                Build/tests/app-texteditor.png Build/tests/app-crashreporter.png Build/tests/app-hexeditor.png
             exit "$ctest_rc"
 
       - name: Publish FreeBSD ctest failure detail (annotations + ci-diagnostics branch)

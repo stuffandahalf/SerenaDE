@@ -37,6 +37,24 @@ Living tracker. Update in the same commit as the work it describes, and keep
 Record discoveries here as they happen (surprising `#ifdef` gaps, API quirks,
  decisions with trade-offs). Newest first.
 
+  - 2026-10-13 — **crash-reporter-render root cause (patch 0081); TextEditor narrowed to content, screenshots now copied back.**
+    The crashed CrashReporter's app log told the whole story: the FreeBSD-built debuggee fixture carries
+    `EI_OSABI = ELFOSABI_FREEBSD (9)`, `ELF::Image::parse()` rejected it ("File has unknown OS ABI (9)"), and
+    `Coredump::Backtrace::object_info_for_region` went on to construct a `DebugInfo`/`DwarfInfo` over the invalid
+    image anyway, hitting `VERIFY(m_valid)` inside the backtrace `BackgroundAction` worker — the process died at or
+    just after `window->show()`, so every poll saw no window (fraction 0.000). Patch 0081 accepts the *BSD OS ABIs
+    (NetBSD 2, FreeBSD 9, OpenBSD 12 — all already defined in `LibELF/ELFABI.h`) alongside SYSV/GNU/Linux in
+    `validate_elf_header`, which lets the backtrace symbolicate and the window render; it also pre-clears the same
+    failure for the NetBSD and OpenBSD matrix legs. For `app-texteditor-open`, the golden diff bbox (x 95..744,
+    y 55..504) is *exactly* TextEditor's window rect: the desktop background and window shadow matched
+    pixel-perfectly, so the window position/size are identical and the compositor is not shifting surfaces —
+    simulating 1–2 px surface shifts on the golden yields at most ~42k differing pixels vs the observed 78812, and
+    the same-geometry HexEditor golden passed on FreeBSD. The remaining signal is consistent with the editor's
+    *content* differing (78812 ≈ 2× editor-area ink + titlebar + scrollbar-trough dither), but arithmetic alone
+    cannot separate content from per-region rendering changes, so the FreeBSD VM step now copies the actual
+    screenshots back (`Build/tests/app-texteditor.png`, `app-crashreporter.png`, and `app-hexeditor.png` as a
+    same-geometry control) and the next run gets diffed locally against the goldens.
+
   - 2026-10-11 — **Failure diagnostics for the FreeBSD ctest round (src-side, no patch).** The first
     full FreeBSD ctest run surfaced two failures with no visible cause: `app-texteditor-open` (golden
     mismatch, 78812/786432 pixels, max delta 255) and `crash-reporter-render` (no window at all,

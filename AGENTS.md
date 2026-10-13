@@ -492,6 +492,21 @@ because `continue-on-error` was hiding VM failures behind a green job. Local ser
 TestCommonmark disabled). Next M8 subtasks: get FreeBSD ctest fully green in the VM, then NetBSD and
 OpenBSD audits/builds.
 
+**Diagnostics round + crash-reporter fix (2026-10-13, patch 0081).** The first full FreeBSD ctest run
+(291 tests, 289 passed) left two failures. `crash-reporter-render`'s cause came straight out of the new
+app-log dump: the FreeBSD-built debuggee carries `EI_OSABI = ELFOSABI_FREEBSD (9)`, ELF header
+validation rejected it, and `Coredump::Backtrace::object_info_for_region` built a `DebugInfo` over the
+invalid image anyway — the resulting `VERIFY(m_valid)` killed the process inside the backtrace
+`BackgroundAction` just as the window was showing, so no window ever appeared. Patch 0081 accepts the
+*BSD OS ABIs (NetBSD 2, FreeBSD 9, OpenBSD 12) in `validate_elf_header` alongside SYSV/GNU/Linux,
+which also pre-clears the same failure for the NetBSD/OpenBSD legs. `app-texteditor-open` is narrowed
+but not yet explained: the failing bbox is exactly TextEditor's window rect (desktop and window shadow
+matched pixel-perfectly, so position/size/compositor placement are identical; simulated 1–2 px surface
+shifts on the golden top out at ~42k differing pixels vs 78812 observed, and the same-geometry HexEditor
+golden passed), which points at the editor's *content* differing. The VM step now also copies back the
+actual screenshots (`app-texteditor.png`, `app-crashreporter.png`, `app-hexeditor.png` as a control) so
+the failing render can be diffed against the goldens locally on the next run.
+
 ## Patch workflow
 
 See `patches/README.md`. Summary: create against the pinned ref in a scratch

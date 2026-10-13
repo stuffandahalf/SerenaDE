@@ -1,0 +1,39 @@
+From 88b8b467231e3c4883331fbc4c4c38b6929d8226 Mon Sep 17 00:00:00 2001
+From: Gregory Norton <gregory.norton@me.com>
+Date: Tue, 13 Oct 2026 04:03:33 -0400
+Subject: [PATCH] LibELF: Accept the *BSD OS ABIs in ELF headers
+
+Binaries built on a *BSD host carry that host's OS ABI value
+(NetBSD 2, FreeBSD 9, OpenBSD 12) in e_ident[EI_OSABI]. Such images
+are structurally identical to SYSV images, so accept them alongside
+SYSV and GNU/Linux.
+
+This fixes Coredump::Backtrace symbolication (CrashReporter) on
+FreeBSD hosts, where parsing the host-built debuggee previously
+failed ELF header validation and then hit a VERIFY in DwarfInfo.
+---
+ Userland/Libraries/LibELF/Validation.cpp | 7 +++++--
+ 1 file changed, 5 insertions(+), 2 deletions(-)
+
+diff --git a/Userland/Libraries/LibELF/Validation.cpp b/Userland/Libraries/LibELF/Validation.cpp
+index f4b9d18f0a..8676598cae 100644
+--- a/Userland/Libraries/LibELF/Validation.cpp
++++ b/Userland/Libraries/LibELF/Validation.cpp
+@@ -47,9 +47,12 @@ bool validate_elf_header(Elf_Ehdr const& elf_header, size_t file_size, bool verb
+     }
+ 
+     // NOTE: With Clang, -fprofile-instr-generate -fcoverage-mapping sets our ELF ABI Version to 3 b/c of SHF_GNU_RETAIN
+-    if (ELFOSABI_SYSV != elf_header.e_ident[EI_OSABI] && ELFOSABI_LINUX != elf_header.e_ident[EI_OSABI]) {
++    // NOTE: Binaries built on a *BSD host carry that host's OS ABI (NetBSD 2, FreeBSD 9, OpenBSD 12); such images are
++    // structurally identical to SYSV images, so accept them here.
++    if (ELFOSABI_SYSV != elf_header.e_ident[EI_OSABI] && ELFOSABI_NETBSD != elf_header.e_ident[EI_OSABI] && ELFOSABI_LINUX != elf_header.e_ident[EI_OSABI]
++        && ELFOSABI_FREEBSD != elf_header.e_ident[EI_OSABI] && ELFOSABI_OPENBSD != elf_header.e_ident[EI_OSABI]) {
+         if (verbose)
+-            dbgln("File has unknown OS ABI ({}), expected SYSV(0) or GNU/Linux(3)!", elf_header.e_ident[EI_OSABI]);
++            dbgln("File has unknown OS ABI ({}), expected SYSV(0), GNU/Linux(3) or a *BSD ABI (2/9/12)!", elf_header.e_ident[EI_OSABI]);
+         return false;
+     }
+ 
+-- 
+2.56.0
+
